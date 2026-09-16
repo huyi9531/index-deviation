@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { Sparkline } from '~/components/Sparkline'
-import { Card, Tag } from '~/components/ui'
+import { Card, ChartLink, Tag } from '~/components/ui'
 import { fmtDate, fmtExcess, fmtPct, fmtPoint } from '~/lib/format'
 import { MARKET_LABEL, currencySymbol } from '~/lib/indices/registry'
 import { getOverview } from '~/lib/indices/service'
@@ -203,19 +203,22 @@ function Row({ row }: { row: OverviewRow }) {
   return (
     <tr className="group relative border-b border-line/70 transition-colors last:border-0 hover:bg-surface-2/70">
       <td className="px-6 py-[15px]">
-        <Link
-          to="/i/$indexId"
-          params={{ indexId: row.id }}
-          className="flex items-center gap-2.5"
-        >
-          <span className="text-[14px] font-semibold text-ink transition-colors group-hover:text-steel">
-            {row.name}
-          </span>
-          <span className="num text-[11px] text-faint">{row.ticker}</span>
-          <Tag tone={row.market === 'cn' ? 'cn' : 'us'}>
-            {MARKET_LABEL[row.market]}
-          </Tag>
-        </Link>
+        <div className="flex items-center gap-2.5">
+          <Link
+            to="/i/$indexId"
+            params={{ indexId: row.id }}
+            className="flex items-center gap-2.5"
+          >
+            <span className="text-[14px] font-semibold text-ink transition-colors group-hover:text-steel">
+              {row.name}
+            </span>
+            <span className="num text-[11px] text-faint">{row.ticker}</span>
+            <Tag tone={row.market === 'cn' ? 'cn' : 'us'}>
+              {MARKET_LABEL[row.market]}
+            </Tag>
+          </Link>
+          <ChartLink indexId={row.id} />
+        </div>
       </td>
       <td className="num py-[15px] pr-4 font-medium text-ink">
         <span className="mr-0.5 text-[0.75em] font-medium text-faint">
@@ -254,18 +257,22 @@ function Row({ row }: { row: OverviewRow }) {
   )
 }
 
-/** 移动端的一行 = 一张卡 */
+/** 移动端的一行 = 一张卡。
+ *  标题与内容各自是通往详情页的链接，外链按钮是这个卡的第三个独立链接 ——
+ *  卡片类样式因此必须留在外层 <div> 上（<a> 套 <a> 是非法 HTML）。 */
 function MobileRow({ row }: { row: OverviewRow }) {
   const spark = SPARK_COLOR[row.signal.tone]
   return (
-    <Link
-      to="/i/$indexId"
-      params={{ indexId: row.id }}
-      className="block rounded-xl border border-line bg-surface p-4 shadow-card transition-shadow active:shadow-card-hover"
-    >
+    <div className="rounded-xl border border-line bg-surface p-4 shadow-card transition-shadow active:shadow-card-hover">
       <div className="flex items-center justify-between gap-3">
-        <span className="flex items-center gap-2">
-          <span className="text-[14.5px] font-semibold text-ink">{row.name}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <Link
+            to="/i/$indexId"
+            params={{ indexId: row.id }}
+            className="text-[14.5px] font-semibold text-ink"
+          >
+            {row.name}
+          </Link>
           <span className="num text-[10.5px] text-faint">{row.ticker}</span>
           <Tag tone={row.market === 'cn' ? 'cn' : 'us'}>
             {MARKET_LABEL[row.market]}
@@ -282,42 +289,50 @@ function MobileRow({ row }: { row: OverviewRow }) {
         </span>
       </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-3">
-        <div>
-          <p className="label-xs">点位</p>
-          <p className="num mt-1.5 text-[19px] font-semibold leading-none text-ink">
-            <span className="text-[11px] font-medium text-faint">
-              {currencySymbol(row.currency)}
-            </span>
-            {fmtPoint(row.close, row.close < 100 ? 2 : 0)}
-          </p>
+      <Link to="/i/$indexId" params={{ indexId: row.id }} className="mt-4 block">
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <p className="label-xs">点位</p>
+            <p className="num mt-1.5 text-[19px] font-semibold leading-none text-ink">
+              <span className="text-[11px] font-medium text-faint">
+                {currencySymbol(row.currency)}
+              </span>
+              {fmtPoint(row.close, row.close < 100 ? 2 : 0)}
+            </p>
+          </div>
+          <div>
+            <p className="label-xs">60 日偏离</p>
+            <p className="num mt-1.5 text-[17px] font-semibold leading-none text-amber">
+              {fmtPct(row.dev60)}
+            </p>
+          </div>
+          <div>
+            <p className="label-xs">200 日偏离</p>
+            <p className="num mt-1.5 text-[17px] font-semibold leading-none text-steel">
+              {fmtPct(row.dev200)}
+            </p>
+          </div>
         </div>
-        <div>
-          <p className="label-xs">60 日偏离</p>
-          <p className="num mt-1.5 text-[17px] font-semibold leading-none text-amber">
-            {fmtPct(row.dev60)}
-          </p>
-        </div>
-        <div>
-          <p className="label-xs">200 日偏离</p>
-          <p className="num mt-1.5 text-[17px] font-semibold leading-none text-steel">
-            {fmtPct(row.dev200)}
-          </p>
-        </div>
-      </div>
 
-      <div className="mt-4 flex items-end gap-3">
-        <div className="min-w-0 flex-1">
-          <Sparkline values={row.spark} color={spark.line} fill={spark.fill} height={28} />
-          <p className="mt-1 text-[10.5px] text-faint">近一年 200 日偏离度</p>
+        <div className="mt-4 flex items-end gap-3">
+          <div className="min-w-0 flex-1">
+            <Sparkline values={row.spark} color={spark.line} fill={spark.fill} height={28} />
+            <p className="mt-1 text-[10.5px] text-faint">近一年 200 日偏离度</p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p
+              className={`num text-[17px] font-semibold leading-none ${excessTone(row.analogExcess)}`}
+            >
+              {fmtExcess(row.analogExcess)}
+            </p>
+            <p className="mt-1 text-[10.5px] text-faint">同类 20 日超额</p>
+          </div>
         </div>
-        <div className="shrink-0 text-right">
-          <p className={`num text-[17px] font-semibold leading-none ${excessTone(row.analogExcess)}`}>
-            {fmtExcess(row.analogExcess)}
-          </p>
-          <p className="mt-1 text-[10.5px] text-faint">同类 20 日超额</p>
-        </div>
+      </Link>
+
+      <div className="mt-3.5 flex justify-end border-t border-line/70 pt-2.5">
+        <ChartLink indexId={row.id} />
       </div>
-    </Link>
+    </div>
   )
 }

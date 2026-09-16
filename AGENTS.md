@@ -16,8 +16,8 @@ Tailwind v4 + Zod 4，目标运行时 Cloudflare Workers（`@cloudflare/vite-plu
 ```
 src/
   lib/indices/          ← 全部业务逻辑，唯一的领域层
-    registry.ts         指数注册表：纯元数据（id/market/provider/currency/liveSince/action 水位）。
-                        不 import 任何数据，客户端可安全引用。加指数从这里开始。
+    registry.ts         指数注册表：纯元数据（id/market/provider/currency/liveSince/action 水位/
+                        chartUrl 外部走势页）。不 import 任何数据，客户端可安全引用。加指数从这里开始。
     types.ts            领域类型 + 载荷类型 + ERAS_US/ERAS_CN/RANGES 常量
     series.ts           纯计算：CSV 解析、均线、对数偏离度（同构，可进客户端）
     stats.ts            纯统计：阈值扫描、baselineRates、复归速度、currentStatus、
@@ -181,6 +181,16 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
     `.gitignore` 里，干净仓库没有它会让 `tsc --noEmit` 挂掉。
     改 payload 结构或 `source` 枚举时，缓存版本三处同步（见上一条）。
 
+14. **「走势 ↗」是站外外链，不是站内路由**。URL 存在 `registry.ts` 的 `chartUrl`
+    （百度股市通：A 股 `ab-<代码>`、美股 `us-<Baidu代码>`，注意标普是 `us-SPX`、纳指100 是
+    `us-NDX`，与 Yahoo 的 `^GSPC`/`^NDX` 不同），由 `ui.tsx` 的 `ChartLink` 统一渲染
+    （`<a target="_blank" rel="noopener noreferrer">`，不走客户端路由、不预加载）。
+    它**不参与任何取数与计算**，也不进 payload —— 所以总览页是现查 registry，
+    而不是把 URL 塞进 `OverviewRow`（那要同步递增缓存版本，白增成本）。
+    坑：总览移动端卡片的外链必须是卡片 `<Link>` 的**兄弟节点**，
+    不能嵌进去（`<a>` 套 `<a>` 是非法 HTML，hydration 会报错）——
+    所以卡片样式留在外层 `<div>`，别把两个链接合并回一个。
+
 ### 新增一个指数（最短路径）
 
 总览、详情、历史证据、API、离线兜底会自动生效，无需新增页面。
@@ -188,8 +198,10 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
 后 4 处是断言与文案（漏了不会报错，但会静默不覆盖 / 数字写错）：
 
 **数据链路**
+
 1. `registry.ts` 的 `INDICES` 加条目（id / symbol / market / provider / currency /
-   liveSince / 标定后的 action 水位，未标定写 `null`），并同步 `IndexId` 联合类型；
+   liveSince / chartUrl 外部走势页 / 标定后的 action 水位，未标定写 `null`），
+   并同步 `IndexId` 联合类型；
 2. `src/data/<id>-daily.csv` 加离线快照；
 3. `source.server.ts` 的 `SEEDS` 加一条 `?raw` 导入；
 4. `scripts/build-seed.mjs` 的 `TARGETS` 加同名条目，跑 `node scripts/build-seed.mjs <id>`。

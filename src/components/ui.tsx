@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { CHART_SITE, indexByIdOrDefault, type IndexId } from '~/lib/indices/registry'
 import type { SignalTone } from '~/lib/indices/types'
 
 export function Card({
@@ -365,4 +366,41 @@ export function ProbBar({
 
 export function Divider({ className = '' }: { className?: string }) {
   return <div className={`h-px w-full bg-line ${className}`} />
+}
+
+/**
+ * 「走势 ↗」外链：跳到该指数的外部行情走势页，**新标签打开**。
+ *
+ * 用原生 <a> 而不是 <Link>：目标是站外站点，不该走客户端路由，
+ * 也不该被 TanStack Router 预加载。URL 从 registry 取（chartUrl），
+ * 所以调用方只需要给 indexId。
+ *
+ * 注意：不要把它嵌在指向详情页的 <Link> 里面 —— <a> 套 <a> 是非法 HTML，
+ * 移动端卡片因此拆成了「标题链接 + 内容链接 + 底部外链」，不要合并回去。
+ */
+export function ChartLink({
+  indexId,
+  label = '走势',
+  className = '',
+}: {
+  indexId: IndexId
+  label?: string
+  className?: string
+}) {
+  const def = indexByIdOrDefault(indexId)
+  return (
+    <a
+      href={def.chartUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={`${def.name} · ${CHART_SITE}（新标签打开）`}
+      aria-label={`${def.name} 走势（${CHART_SITE}，新标签打开）`}
+      className={`inline-flex shrink-0 items-center gap-1 rounded-md border border-line bg-surface px-2 py-[3px] text-[11.5px] font-medium text-muted transition-colors hover:border-line-strong hover:text-steel ${className}`}
+    >
+      {label}
+      <span aria-hidden="true" className="text-[9.5px] leading-none opacity-70">
+        ↗
+      </span>
+    </a>
+  )
 }

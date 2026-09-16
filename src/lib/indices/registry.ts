@@ -76,8 +76,22 @@ export interface IndexDef {
    * 强行套一个发布日只会制造假告警。
    */
   liveSince: number
+  /**
+   * 外部行情走势页（站内「走势 ↗」按钮的目标，一律新标签打开）。
+   *
+   * 选百度股市通的理由：它一个站点同时覆盖 A 股与美股，且两边的代码体系
+   * 都能用 —— A 股用交易所代码（ab-000510），美股用它自己的代码（us-SPX / us-NDX，
+   * 注意不是 Yahoo 的 ^GSPC / ^NDX），所以两条链路都不需要额外拼接，逐个手写即可。
+   *
+   * 它**不参与本站任何取数与计算**，只是「想看一眼更大的 K 线/分时」的出口；
+   * 本站所有数字仍只来自 provider 指定的数据源。
+   */
+  chartUrl: string
   action: ActionLevels
 }
+
+/** 外部走势页所在站点。UI 文案统一引用这里，改站点只改一处 */
+export const CHART_SITE = '百度股市通'
 
 /**
  * 各指数实测标定结果（60 日口径超额胜率，单位为百分点）：
@@ -113,6 +127,7 @@ export const INDICES: readonly IndexDef[] = [
     ticker: 'SPX',
     currency: 'USD',
     liveSince: 0,
+    chartUrl: 'https://finance.baidu.com/index/us-SPX',
     action: { dev60: -7, dev200: -10 },
   },
   {
@@ -125,6 +140,8 @@ export const INDICES: readonly IndexDef[] = [
     ticker: 'NDX',
     currency: 'USD',
     liveSince: 0,
+    // Baidu 的纳斯达克100 用 NDX（不是 ^NDX，也不是综合指数 IXIC）
+    chartUrl: 'https://finance.baidu.com/index/us-NDX',
     action: { dev60: null, dev200: null },
   },
   {
@@ -137,6 +154,7 @@ export const INDICES: readonly IndexDef[] = [
     ticker: '000300',
     currency: 'CNY',
     liveSince: 20050408,
+    chartUrl: 'https://finance.baidu.com/index/ab-000300',
     action: { dev60: null, dev200: -12 },
   },
   {
@@ -149,6 +167,7 @@ export const INDICES: readonly IndexDef[] = [
     ticker: '000510',
     currency: 'CNY',
     liveSince: 20240923,
+    chartUrl: 'https://finance.baidu.com/index/ab-000510',
     action: { dev60: null, dev200: -12 },
   },
   {
@@ -161,6 +180,7 @@ export const INDICES: readonly IndexDef[] = [
     ticker: '000905',
     currency: 'CNY',
     liveSince: 20070115,
+    chartUrl: 'https://finance.baidu.com/index/ab-000905',
     action: { dev60: -8, dev200: -20 },
   },
   {
@@ -173,6 +193,7 @@ export const INDICES: readonly IndexDef[] = [
     ticker: '399006',
     currency: 'CNY',
     liveSince: 20100601,
+    chartUrl: 'https://finance.baidu.com/index/ab-399006',
     action: { dev60: -8, dev200: -14 },
   },
   {
@@ -188,6 +209,7 @@ export const INDICES: readonly IndexDef[] = [
     // 数据源自 2020-01-02 起，即从基日开始回溯；但统计窗口起自 2020-11-02，
     // 晚于发布日 —— 回溯段进不了统计，所以页面不会（也不该）标回溯。
     liveSince: 20200723,
+    chartUrl: 'https://finance.baidu.com/index/ab-000688',
     action: { dev60: -4, dev200: -16 },
   },
 ] as const

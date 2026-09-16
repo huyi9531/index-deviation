@@ -5,7 +5,7 @@ import { HistogramChart } from '~/components/HistogramChart'
 import { SummaryStrip } from '~/components/Blocks'
 import { DenseThresholdTable, EraSummaryTable } from '~/components/ThresholdTable'
 import { TimeSeriesChart } from '~/components/TimeSeriesChart'
-import { Card, SectionHead, Segmented } from '~/components/ui'
+import { Card, ChartLink, SectionHead, Segmented } from '~/components/ui'
 import { fmtDate, fmtPoint } from '~/lib/format'
 import { isIndexId, indexByIdOrDefault } from '~/lib/indices/registry'
 import { activeErasFor } from '~/lib/indices/queries'
@@ -119,6 +119,8 @@ function DetailPage() {
           >
             历史证据 →
           </Link>
+          {/* 外部实时走势（新标签）。本站只画偏离度，K 线/分时看外部 */}
+          <ChartLink indexId={def.id} />
         </div>
       </div>
 

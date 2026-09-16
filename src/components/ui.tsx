@@ -369,20 +369,17 @@ export function Divider({ className = '' }: { className?: string }) {
 }
 
 /**
- * 「走势 ↗」外链：跳到该指数的外部行情走势页，**新窗口**打开。
+ * 「走势 ↗」外链：跳到该指数的外部行情走势页，**新标签页**打开。
+ *
+ * ⚠️ 就用 `<a target="_blank">`，**不要**改成 `window.open` 开新窗口：
+ * 曾经按需求做过一版「带尺寸特征强制新窗口」，用户实测后明确要回标签页。
+ * （而且那版本还有坑：features 里带 noopener 时无论成败都返回 null，
+ *  分不清「开窗成功」与「被拦截」，会窗口+标签页各开一个。）
+ * 现在不需要任何 JS：标签页是浏览器默认行为，没有弹窗、没有拦不拦的问题。
  *
  * 用原生 <a> 而不是 <Link>：目标是站外站点，不该走客户端路由，
  * 也不该被 TanStack Router 预加载。URL 从 registry 取（chartUrl），
  * 所以调用方只需要给 indexId。
- *
- * 为什么要 window.open 而不是 target="_blank"：**标签页还是窗口由浏览器决定，
- * HTML 里根本没有这个开关**。唯一能强制新窗口的办法是带尺寸特征调 window.open
- * —— 浏览器无法把「我要 1400×1000 的窗口」塞进一个标签页，只能另开窗口。
- * 点击同步调用（不 await、不 setTimeout）才能保住用户手势，不被弹窗拦截器拦下。
- *
- * 两种失败/降级路径都留了：①修饰键（ctrl/cmd/shift/alt）点击直接放给浏览器自己处理；
- * ②弹窗被拦时（window.open 返回 null）不拦默认行为，退回 <a> 的 target="_blank" 新标签。
- * 移动端没有「窗口」这个概念，系统会照旧开标签页，这是浏览器行为，代码管不了。
  *
  * 注意：不要把它嵌在指向详情页的 <Link> 里面 —— <a> 套 <a> 是非法 HTML，
  * 移动端卡片因此拆成了「标题链接 + 内容链接 + 底部外链」，不要合并回去。
@@ -397,28 +394,13 @@ export function ChartLink({
   className?: string
 }) {
   const def = indexByIdOrDefault(indexId)
-
-  const openWindow = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    // 修饰键与中键是浏览器的既有约定（想开标签就开标签），交给浏览器自己处理
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
-    // features 里刻意**不带** noopener/noreferrer：带上之后 window.open 无论成败
-    // 都返回 null，就无法区分「开窗成功」与「被弹窗拦截」—— 而这两种情况要做相反的事。
-    // 安全等价做法：拿到句柄后自己摘掉 opener。
-    const win = window.open(def.chartUrl, '_blank', popupFeatures())
-    if (!win) return // 被拦：不拦默认行为，退回 <a> 的新标签
-    win.opener = null
-    // 开窗成功了才拦默认跳转，否则会窗口 + 标签页各开一个
-    e.preventDefault()
-  }
-
   return (
     <a
       href={def.chartUrl}
       target="_blank"
       rel="noopener noreferrer"
-      onClick={openWindow}
-      title={`${def.name} · ${CHART_SITE}（新窗口打开）`}
-      aria-label={`${def.name} 走势（${CHART_SITE}，新窗口打开）`}
+      title={`${def.name} · ${CHART_SITE}（新标签打开）`}
+      aria-label={`${def.name} 走势（${CHART_SITE}，新标签打开）`}
       className={`inline-flex shrink-0 items-center gap-1 rounded-md border border-line bg-surface px-2 py-[3px] text-[11.5px] font-medium text-muted transition-colors hover:border-line-strong hover:text-steel ${className}`}
     >
       {label}
@@ -427,24 +409,4 @@ export function ChartLink({
       </span>
     </a>
   )
-}
-
-/**
- * 新窗口的尺寸特征：给「看大走势」配一个大窗口，而不是浏览器默认那种小弹窗。
- * 按屏幕可用区域缩到 92%，再「居中」（left/top 相对屏幕左上角）。
- * 屏幕特别小时不再缩，宁可有滚动条也不要小到看不清。
- *
- * ⚠️ 这里**绝不能**出现 `noopener` / `noreferrer`：带上它们之后 window.open 无论
- * 开窗成败都返回 null，调用方就无法区分「开窗成功」与「被弹窗拦截」，会把两种相反
- * 的处理都做错（见 ChartLink）。开窗后的 opener 由调用方自己摘。
- * windowFeatures 只能是 ASCII，逗号分隔。
- */
-function popupFeatures(): string {
-  const availW = window.screen?.availWidth || 1440
-  const availH = window.screen?.availHeight || 900
-  const width = Math.max(960, Math.min(1560, Math.round(availW * 0.92)))
-  const height = Math.max(720, Math.min(1100, Math.round(availH * 0.94)))
-  const left = Math.max(0, Math.round((availW - width) / 2))
-  const top = Math.max(0, Math.round((availH - height) / 2))
-  return `width=${width},height=${height},left=${left},top=${top}`
 }

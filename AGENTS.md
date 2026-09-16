@@ -192,17 +192,18 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
     `.gitignore` 里，干净仓库没有它会让 `tsc --noEmit` 挂掉。
     改 payload 结构或 `source` 枚举时，缓存版本三处同步（见上一条）。
 
-14. **「走势 ↗」是站外外链：新窗口打开，不是新标签页**。URL 存在 `registry.ts` 的
+14. **「走势 ↗」是站外外链，用新标签页打开 —— 不要改成新窗口**。URL 存在 `registry.ts` 的
     `chartUrl`（百度股市通：A 股 `ab-<代码>`、美股 `us-<Baidu代码>`，注意标普是
     `us-SPX`、纳指100 是 `us-NDX`，与 Yahoo 的 `^GSPC`/`^NDX` 不同），由 `ui.tsx` 的
-    `ChartLink` 统一渲染。**标签页还是窗口由浏览器决定，HTML 里没有这个开关**，
-    所以必须 `onClick` 里同步 `window.open(href, '_blank', 带 width/height/left/top 的 features)`
-    —— 浏览器无法把「我要 1400×1000 的窗口」塞进标签页，只能开窗。
-    两个坑：①features 里**不能**带 `noopener`/`noreferrer`（带上之后无论成败都返回 null，
-    就没法区分「开窗成功」和「被弹窗拦截」），改成拿到句柄后自己 `win.opener = null`；
-    ②只有 `win` 非空时才 `preventDefault()`，被拦时让它走 `<a target="_blank">`
-    的新标签兜底 —— 而 `<a>` 的 `href`/`target` 本来就要保留（无 JS 时的唯一路径）。
-    移动端没有「窗口」概念，系统照旧开标签页，这是浏览器行为。
+    `ChartLink` 统一渲染：`<a target="_blank" rel="noopener noreferrer">`，零 JS，不走客户端路由、不预加载。
+
+    曾经按需求做过一版「`onClick` 里 `window.open` + width/height 特征强制开新窗口」
+    （标签页还是窗口本是浏览器策略，HTML 没这个开关，只能这样强制），**用户实测后明确要回标签页，
+    已移除**。两个别踩回去的理由：①. 开新窗口要带尺寸特征，而 features 里一旦包含 `noopener`，
+    `window.open` 无论成败都返回 null，调用方就分不清「开窗成功」与「被弹窗拦截」，
+    会把两种相反的处理都做错（会窗口+标签页各开一个）；②弹窗拦截器是真实存在的失败模式，
+    纯 `<a>` 没有这两个问题。
+
     它**不参与任何取数与计算**，也不进 payload —— 所以总览页是现查 registry，
     而不是把 URL 塞进 `OverviewRow`（那要同步递增缓存版本，白增成本）。
     另一个坑：总览移动端卡片的外链必须是卡片 `<Link>` 的**兄弟节点**，

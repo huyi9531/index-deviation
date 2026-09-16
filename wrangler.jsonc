@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "index-deviation",
+  "compatibility_date": "2026-09-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "@tanstack/react-start/server-entry",
+  "observability": {
+    "enabled": true
+  },
+  "routes": [
+    { "pattern": "index.aiconductor.top", "custom_domain": true }
+  ]
+}

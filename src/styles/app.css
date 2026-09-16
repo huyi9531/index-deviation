@@ -1,0 +1,115 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', 'Cascadia Mono', 'JetBrains Mono', Menlo,
+    Consolas, monospace;
+
+  /* 仪器纸面：冷调、扁平。canvas 比 surface 深半档，面板靠 1px 发丝线定界，
+     阴影只做极轻的 elevation —— 高级感来自克制，不来自投影 */
+  --color-canvas: #f2f3f1;
+  --color-surface: #fdfdfc;
+  --color-surface-2: #f6f7f5;
+  --color-line: #e2e4df;
+  --color-line-strong: #c9ccc5;
+
+  /* 文字：微冷的黑，灰阶不带黄 */
+  --color-ink: #15171a;
+  --color-ink-2: #43464c;
+  --color-muted: #6b6e75;
+  --color-faint: #999da3;
+
+  /* 语义色：60 日线用琥珀，200 日线用钢蓝 */
+  --color-amber: #a85e06;
+  --color-amber-soft: #f7ecdb;
+  --color-steel: #1f5096;
+  --color-steel-soft: #e4edf8;
+
+  /* 涨跌（沿用 A 股惯例：红涨绿跌） */
+  --color-up: #c0392b;
+  --color-down: #0e7a52;
+
+  /* 极端区间底色 */
+  --color-cold-band: #e9f0f9;
+  --color-hot-band: #fbeae4;
+
+  /* 市场 badge 底色 */
+  --color-market-cn-bg: #fbeeea;
+  --color-market-cn-fg: #a23222;
+  --color-market-cn-line: #f0d3cc;
+  --color-market-us-bg: #e9eff8;
+  --color-market-us-fg: #1f5096;
+  --color-market-us-line: #d0dcee;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 13.5px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'tnum' 1, 'cv03' 1;
+  }
+
+  ::selection {
+    background: #dbe4f2;
+  }
+
+  /* 键盘可达性：所有可聚焦元素给清晰的仪器式焦点环 */
+  :focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-steel) 55%, transparent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+}
+
+@utility num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  font-feature-settings: 'tnum' 1;
+}
+
+@utility label-xs {
+  font-size: 11.5px;
+  line-height: 1.2;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--color-faint);
+}
+
+/* 面板阴影：近乎贴纸，只留一点点空气感 */
+@utility shadow-card {
+  box-shadow:
+    0 1px 2px rgba(21, 23, 26, 0.03),
+    0 3px 10px rgba(21, 23, 26, 0.03);
+}
+
+@utility shadow-card-hover {
+  box-shadow:
+    0 1px 2px rgba(21, 23, 26, 0.04),
+    0 6px 20px rgba(21, 23, 26, 0.06);
+}
+
+/* 极细滚动条，避免图表区域出现粗重滚动条 */
+.thin-scroll::-webkit-scrollbar {
+  height: 8px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 999px;
+}
+.thin-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}

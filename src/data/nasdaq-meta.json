@@ -1,0 +1,11 @@
+{
+  "id": "nasdaq",
+  "symbol": "^NDX",
+  "provider": "yahoo",
+  "name": "NASDAQ-100",
+  "source": "Yahoo Finance chart API（成交额列为成交量 volume）",
+  "fetchedAt": "2026-09-16T03:24:01.607Z",
+  "firstDate": "19851001",
+  "lastDate": "20260915",
+  "tradingDays": 10318
+}

@@ -1,0 +1,21 @@
+node_modules
+dist
+.output
+.wrangler
+.vinxi
+.vercel
+.env
+.env.*
+!.env.example
+.dev.vars
+*.log
+worker-configuration.d.ts
+.DS_Store
+.claude
+.smoke/shots
+.smoke/*.html
+
+# 工具/缓存目录（非项目源码）
+.tanstack
+.workbuddy
+.agents

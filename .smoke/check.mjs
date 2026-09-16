@@ -151,6 +151,9 @@ for (const path of apiPaths) {
     if (json.count !== 7) bad++
   } else if (json.ok) {
     if (json.market !== 'us' && json.market !== 'cn') bad++
+    // 回归护栏：数据来源只允许这三态，且每一态都必须在 UI 上有对应展示。
+    // 若有人加了新来源（如又加一层兜底）却没同步 UI 与文档，这一条就会响。
+    if (!['live', 'cached', 'snapshot'].includes(json.meta?.source)) bad++
     // 回归护栏：纳斯达克100 两个口径都无标定水位（实测无优势，registry 写明是
     // 「结论」不是「缺失」），因此它永远不该被算作 actionable。若有人把判定改回
     // tone / 分位口径，这一条就会响 —— 2026-09 科创50 的浅水位曾让页面与 API
@@ -169,6 +172,8 @@ for (const path of apiPaths) {
       String(json.dev200).padStart(7) +
       '  水位 ' +
       t.padEnd(9) +
+      ' ' +
+      String(json.meta?.source ?? '?').padEnd(8) +
       ' actionable=' +
       json.actionable
   } else {

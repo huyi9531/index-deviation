@@ -232,7 +232,7 @@ export interface ChartPayload {
 }
 
 export interface DataMeta {
-  source: 'live' | 'snapshot'
+  source: 'live' | 'cached' | 'snapshot'
   /** 指数标识，见 registry.ts */
   indexId: string
   /** 指数中文名 */

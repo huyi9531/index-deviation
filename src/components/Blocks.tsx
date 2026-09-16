@@ -1,4 +1,4 @@
-import { fmtDate, fmtExcess, fmtInt, fmtPct, fmtPoint, fmtProb } from '~/lib/format'
+import { fmtDate, fmtDateTime, fmtExcess, fmtInt, fmtPct, fmtPoint, fmtProb } from '~/lib/format'
 import { currencySymbol } from '~/lib/indices/registry'
 import type {
   AnalogAnswer,
@@ -57,6 +57,17 @@ function pctTone(pct: number): SignalTone {
  * 同一个数字只在这里出现一次，图表与表格不再重复展示当前值。
  * 信号解释放进 title（悬停可见），完整说明在方法页。
  */
+/**
+ * 数据来源的一句话说明。三种状态都必须显式写出来 —— 兜底数据冒充实时是诚实性问题。
+ * cached 要带出抓取时刻：它是「上次成功抓取」，可能已经是几小时前；
+ * snapshot 不带时刻，因为它的 fetchedAt 是「本次读快照的时间」而不是数据生成时间。
+ */
+function sourceNote(meta: DataMeta): string {
+  if (meta.source === 'live') return ' · 实时'
+  if (meta.source === 'cached') return ` · 缓存（上次抓取 ${fmtDateTime(meta.fetchedAt)}）`
+  return ' · 离线快照'
+}
+
 export function SummaryStrip({
   meta,
   status,
@@ -103,7 +114,7 @@ export function SummaryStrip({
           ) : null}
           <span className="ml-auto text-[11.5px] text-faint">
             数据截至 <span className="num">{fmtDate(meta.lastDate)}</span>
-            {meta.source === 'live' ? ' · 实时' : ' · 离线快照'}
+            {sourceNote(meta)}
           </span>
         </div>
       </div>

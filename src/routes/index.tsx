@@ -48,6 +48,17 @@ const TONE_PILL: Record<SignalTone, string> = {
 /** 排序用：越冷（超卖、越接近历史机会区）越靠前 */
 const TONE_RANK: Record<SignalTone, number> = { cold: 0, cool: 1, neutral: 2, warm: 3, hot: 4 }
 
+/**
+ * 非实时数据源的可视标记。live 不标；cached = 实时源不可达、用 KV 里上次成功抓取
+ * 的数据（较新）；snapshot = 连 KV 也没有，退到构建时内置的离线快照（只在重新部署时
+ * 更新）。两种都要显式标出 —— 兜底数据冒充实时是诚实性问题。
+ */
+const SOURCE_BADGE: Record<'cached' | 'snapshot', { label: string; tone: 'steel' | 'warn' }> =
+  {
+    cached: { label: '缓存', tone: 'steel' },
+    snapshot: { label: '快照', tone: 'warn' },
+  }
+
 function OverviewPage() {
   const data = Route.useLoaderData()
 
@@ -233,9 +244,9 @@ function Row({ row }: { row: OverviewRow }) {
           <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[row.signal.tone]}`} />
           {row.signal.title}
         </span>
-        {row.source === 'snapshot' ? (
+        {row.source !== 'live' ? (
           <span className="ml-2">
-            <Tag tone="warn">快照</Tag>
+            <Tag tone={SOURCE_BADGE[row.source].tone}>{SOURCE_BADGE[row.source].label}</Tag>
           </span>
         ) : null}
       </td>
@@ -259,6 +270,9 @@ function MobileRow({ row }: { row: OverviewRow }) {
           <Tag tone={row.market === 'cn' ? 'cn' : 'us'}>
             {MARKET_LABEL[row.market]}
           </Tag>
+          {row.source !== 'live' ? (
+            <Tag tone={SOURCE_BADGE[row.source].tone}>{SOURCE_BADGE[row.source].label}</Tag>
+          ) : null}
         </span>
         <span
           className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${TONE_PILL[row.signal.tone]}`}

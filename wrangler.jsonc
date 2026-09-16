@@ -4,6 +4,12 @@
   "compatibility_date": "2026-09-11",
   "compatibility_flags": ["nodejs_compat"],
   "main": "@tanstack/react-start/server-entry",
+  "kv_namespaces": [
+    {
+      "binding": "DAILY_DATA",
+      "id": "9904bc18958e4b63b3f9a388dc67b868"
+    }
+  ],
   "observability": {
     "enabled": true
   },

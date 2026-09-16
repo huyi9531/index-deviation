@@ -26,7 +26,7 @@ src/
     search.ts           各路由共享的 zod 搜索参数定义
     format.ts           数字/日期/百分比/超额格式化（fmtExcess 等）
     service.ts          serverFn 层：缓存 + CACHE_VERSION + alertState
-    source.server.ts    取数（fetchYahoo/fetchEastmoney 按派发）+ 两级缓存 + 离线快照
+    source.server.ts    取数（fetchYahoo/fetchEastmoney 按派发）+ 四级兜底（内存 → 平台缓存 → KV → 内置快照）
   routes/               文件路由：/ 总览、/i/$indexId 详情、/stats/$indexId 历史证据、
                         /method 说明、/api/$indexId JSON（indexId 可为 all）
   components/           ui.tsx（Card/Metric/Tag/Segmented/Gauge 等基础件）+ 图表 + 表格
@@ -49,7 +49,7 @@ scripts/
 | `npm run dev` | 开发服务器，<http://localhost:3000> —— **日常 UI 迭代走这里（HMR）** |
 | `npm run build` | `vite build && tsc --noEmit`，部署前必须通过 |
 | `npm run preview` | workerd 里跑构建产物（**端口 4173**，不读 server.port；重建 dist 后必须重启） |
-| `npm run seed [id...]` | 重新抓取并刷新离线快照（`npm run seed` = 全部 6 个） |
+| `npm run seed [id...]` | 重新抓取并刷新离线快照（`npm run seed` = 全部 7 个） |
 | `npm run deploy` | build + `wrangler deploy` |
 | `node .smoke/check.mjs` | 路由内容断言（默认 3000；`BASE=<url>` 可指向 preview/线上） |
 | `node .smoke/overflow.mjs <path> [width]` | 窄屏横向溢出检查（headless Chrome，默认 390px） |
@@ -113,8 +113,8 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
    纯计算放同构模块，不要为了省事把取数逻辑写进组件或 queries。
 
 3. **缓存键 = `CACHE_VERSION` + 业务键，三处同步递增**。改统计口径或 payload 结构时：
-   `service.ts` 的 `CACHE_VERSION`（现值 6）、`source.server.ts` 里 Cache API 的
-   URL 版本段（daily-v2、payload/v4）。漏掉任何一处，TTL 20 分钟内旧 payload 会
+   `service.ts` 的 `CACHE_VERSION`（现值 8）、`source.server.ts` 里 Cache API 的
+   URL 版本段（daily-v2、payload/v6）。漏掉任何一处，TTL 20 分钟内旧 payload 会
    一直被命中，表现为「修复没生效」。
 
 4. **行动水位允许 null**。标定规则：最浅阈值满足「60 日胜率 − 基线 ≥ +3pp 且 ≥12 次
@@ -167,6 +167,19 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
     判据：纳指100 两个水位都是 `null`（实测无优势），它**永远不该**被算作触发 ——
     改用分位口径就会把它重新算成「值得关注」，直接达反产品的诚实性立场。
     `.smoke/check.mjs` 里对此加了断言嗂兵。
+
+13. **数据兜底是四级链，`DailyData.source` 有三态**。顺序：
+    内存缓存（实时，≤20min）→ 平台缓存 Cache API（实时，≤20min）→
+    **KV `DAILY_DATA`（上次成功抓取）** → 内置离线快照（构建产物）。
+    `source` 取值：`live` / `cached` / `snapshot`，**每一态都必须在 UI 上显式标出**
+    （总览页 Tag、详情页一句话说明）—— 兜底数据冒充实时是诚实性问题。
+    为什么要有 KV 层：内置快照是构建产物，只在重新部署时才变，所以只用它兜底
+    等于「实时源挂了就一直显示上次部署那天的数据」。KV 把兜底基准改成「上次成功抓取」。
+    两个坑：①KV 写只有 **lastDate 推进时**才真写（免费额度 1000 写/天，不去重
+    会到 504 写/天）；②`cloudflare:workers` 的 import 必须带 `@ts-ignore` ——
+    模块声明来自 `wrangler types` 生成的 `worker-configuration.d.ts`，而它在
+    `.gitignore` 里，干净仓库没有它会让 `tsc --noEmit` 挂掉。
+    改 payload 结构或 `source` 枚举时，缓存版本三处同步（见上一条）。
 
 ### 新增一个指数（最短路径）
 

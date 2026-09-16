@@ -27,7 +27,12 @@ import { parseCsv } from './series'
 export interface DailyData {
   dates: number[]
   closes: number[]
-  source: 'live' | 'snapshot'
+  /**
+   * live     —— 本次请求从实时源抓到
+   * cached   —— 实时源不可达，取自 KV 里的「上次成功抓取」
+   * snapshot —— KV 也没有，退到构建时内置的离线快照
+   */
+  source: 'live' | 'cached' | 'snapshot'
   provider: string
   fetchedAt: string
 }
@@ -48,8 +53,8 @@ const HISTORY_START_UNIX = Math.floor(Date.UTC(1948, 0, 1) / 1000)
 
 /** 实时数据缓存时长：20 分钟。日线在美东收盘后更新一次，够用 */
 const LIVE_TTL_SECONDS = 20 * 60
-/** 兜底快照缓存时长：5 分钟，好让实时源恢复后尽快切回去 */
-const SNAPSHOT_TTL_SECONDS = 5 * 60
+/** 非实时兜底源（KV 缓存 / 内置快照）的内存缓存时长：5 分钟，好让实时源恢复后尽快切回去 */
+const FALLBACK_TTL_SECONDS = 5 * 60
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
@@ -71,7 +76,7 @@ function cfCache(): Cache | null {
 }
 
 function isFresh(entry: MemoryEntry): boolean {
-  const ttl = entry.data.source === 'live' ? LIVE_TTL_SECONDS : SNAPSHOT_TTL_SECONDS
+  const ttl = entry.data.source === 'live' ? LIVE_TTL_SECONDS : FALLBACK_TTL_SECONDS
   return Date.now() - entry.at < ttl * 1000
 }
 
@@ -88,7 +93,7 @@ async function readPlatformCache(id: string): Promise<DailyData | null> {
     if (!hit) return null
     const payload = (await hit.json()) as DailyData
     if (!payload?.dates?.length) return null
-    const ttl = payload.source === 'live' ? LIVE_TTL_SECONDS : SNAPSHOT_TTL_SECONDS
+    const ttl = payload.source === 'live' ? LIVE_TTL_SECONDS : FALLBACK_TTL_SECONDS
     const age = Date.now() - Date.parse(payload.fetchedAt)
     if (!Number.isFinite(age) || age > ttl * 1000) return null
     return payload
@@ -130,6 +135,90 @@ function snapshot(def: IndexDef): DailyData {
     source: 'snapshot',
     provider: `内置离线快照（${PROVIDER_LABEL[def.provider]} 历史数据 · ${def.symbol}）`,
     fetchedAt: new Date().toISOString(),
+  }
+}
+
+/* ─────────────────── KV：把「上次成功抓取」持久化，当兜底 ─────────────────── */
+
+/**
+ * 兜底链里的第 3 层（内存缓存 → 平台缓存 → **KV** → 内置离线快照）。
+ *
+ * 为什么不能用平台缓存（Cache API）顶替：它是缓存、会被驱逐，而且写进去时带的
+ * `cache-control: max-age=3600` 把保留期封到 1 小时。KV 是持久存储，
+ * 能把兜底数据的基准从「上次部署」（内置快照是构建产物，只在重新部署时更新）
+ * 变成「上次成功抓取」。
+ *
+ * 类型用最小自声明，刻意不依赖 `wrangler types` 生成的 worker-configuration.d.ts
+ * —— 那个文件在 .gitignore 里，新克隆的仓库没有它，直接引用会让 tsc 挂掉。
+ * 同理用动态 import：本地无绑定（如纯 Node 环境）时能优雅退回下一层。
+ */
+interface DailyKv {
+  get(key: string): Promise<string | null>
+  put(key: string, value: string): Promise<void>
+}
+
+/**
+ * 取 KV binding。
+ *
+ * ⚠️ 这里的 @ts-ignore 是必要的，不是偷懒：'cloudflare:workers' 的模块声明来自
+ * `wrangler types` 生成的 worker-configuration.d.ts，而那个文件在 .gitignore 里 ——
+ * 新克隆的仓库没有它，字面量 import 会让 `npm run build`（vite build && tsc --noEmit）
+ * 在 tsc 环节直接挂掉。
+ * 用它而不是 @ts-expect-error：后者在生成文件**存在**时会报「未使用的指令」，
+ * 反而把另一种环境弄坏。
+ * 也不能自己写无声明 shim：生成文件用的是 `export =`，会与具名导出声明冲突。
+ *
+ * 包一层 try/catch 是为了在无绑定的环境（如纯 Node 下跑构建脚本）优雅退回下一层。
+ */
+async function kvNamespace(): Promise<DailyKv | null> {
+  try {
+    // @ts-ignore 见上方说明：模块声明可能不存在于干净仓库
+    const mod = (await import('cloudflare:workers')) as {
+      env?: { DAILY_DATA?: DailyKv }
+    }
+    return mod.env?.DAILY_DATA ?? null
+  } catch {
+    return null
+  }
+}
+
+const kvKey = (id: string) => `daily/${id}`
+
+/** 读「上次成功抓取」。读不到（无绑定 / 无记录 / 损坏）一律返回 null，交给下一层 */
+async function readKv(id: string): Promise<DailyData | null> {
+  const kv = await kvNamespace()
+  if (!kv) return null
+  try {
+    const raw = await kv.get(kvKey(id))
+    if (!raw) return null
+    const data = JSON.parse(raw) as DailyData
+    if (!data?.dates?.length || !data?.closes?.length) return null
+    // 存进去时它是 live，读回来必须如实改成 cached —— 否则兜底数据会冒充实时
+    return { ...data, source: 'cached' }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 写「上次成功抓取」。仅在**数据末日推进**时真写。
+ *
+ * 免费额度是 1000 写/天：不做去重的话，7 个指数 × 每 20 分钟一次实时抓取
+ * = 504 写/天，只余一倍余量；按末日去重后降到 ~7 写/天。
+ */
+async function writeKv(id: string, data: DailyData): Promise<void> {
+  const kv = await kvNamespace()
+  if (!kv) return
+  try {
+    const key = kvKey(id)
+    const prev = await kv.get(key)
+    if (prev) {
+      const prevLast = (JSON.parse(prev) as DailyData)?.dates?.at(-1)
+      if (prevLast === data.dates.at(-1)) return
+    }
+    await kv.put(key, JSON.stringify(data))
+  } catch {
+    /* 写失败不影响主流程：下一次实时抓取成功还有机会写 */
   }
 }
 
@@ -272,7 +361,11 @@ interface YahooChartResponse {
 }
 
 /**
- * 取某个指数的日线数据。优先实时，失败回落快照。
+ * 取某个指数的日线数据，按四级兜底：
+ *   ① 内存缓存（实时，≤20min）
+ *   ② 平台缓存（实时，≤20min）
+ *   ③ KV（上次成功抓取；比构建时内置的快照新）
+ *   ④ 内置离线快照（构建产物，只在重新部署时更新）
  * 非法 id 回落到默认指数（页面路由会先做 404 校验）。
  */
 export async function loadDaily(indexId: string): Promise<DailyData> {
@@ -288,11 +381,18 @@ export async function loadDaily(indexId: string): Promise<DailyData> {
   }
 
   const live = await fetchLive(def)
-  const data = live ?? snapshot(def)
+  if (live) {
+    memory.set(def.id, { at: Date.now(), data: live })
+    await writePlatformCache(def.id, live)
+    // 异步写 KV，不阻塞响应；只在末日推进时真写（见 writeKv）
+    void writeKv(def.id, live)
+    return live
+  }
 
+  // 实时不可用：先试 KV（上次成功抓取），再落内置离线快照
+  const kvData = await readKv(def.id)
+  const data = kvData ?? snapshot(def)
   memory.set(def.id, { at: Date.now(), data })
-  // 只缓存实时数据到平台缓存，避免快照把「实时」长期盖住
-  if (live) await writePlatformCache(def.id, data)
   return data
 }
 
@@ -323,7 +423,10 @@ export async function cachedJson<T>(
   const cache = cfCache()
   // v5: payload 结构变更（SignalLevel 去 actionable、改拎 waterTriggered）
   // v4: 同行位置改展示超额（excess20）而非裸胜率
-  const url = `https://deviation-monitor.internal/payload/v5/${key}`
+  // v6: 兜底链加 KV 层，DataMeta.source 多出 'cached' 状态
+  // v5: payload 结构变更（SignalLevel 去 actionable、改拎 waterTriggered）
+  // v4: 同行位置改展示超额（excess20）而非裸胜率
+  const url = `https://deviation-monitor.internal/payload/v6/${key}`
   if (cache) {
     try {
       const hit = await cache.match(url)

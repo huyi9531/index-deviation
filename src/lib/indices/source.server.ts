@@ -174,7 +174,7 @@ let cfModule: CfWorkersBinding | null | undefined
 /**
  * 取 `cloudflare:workers` 模块（带缓存，首次之后无 I/O）。
  *
- * ⚠️ 这里的 @ts-ignore 是必要的，不是偷懒：'cloudflare:workers' 的模块声明来自
+ * ⚠️ 这里的 @ts-expect-error 是必要的，不是偷懒：'cloudflare:workers' 的模块声明来自
  * `wrangler types` 生成的 worker-configuration.d.ts，而那个文件在 .gitignore 里 ——
  * 新克隆的仓库没有它，字面量 import 会让 `npm run build`（vite build && tsc --noEmit）
  * 在 tsc 环节直接挂掉。
@@ -185,7 +185,8 @@ let cfModule: CfWorkersBinding | null | undefined
 async function cfWorkers(): Promise<CfWorkersBinding | null> {
   if (cfModule !== undefined) return cfModule
   try {
-    // @ts-ignore 见上方说明：模块声明可能不存在于干净仓库
+    // biome-ignore lint/suspicious/noTsIgnore: 这里必须是 @ts-ignore，理由见上（biome 的 unsafe fix 会把它改成 @ts-expect-error，反而把另一种环境弄坏）
+    // @ts-ignore 模块声明可能不存在于干净仓库
     cfModule = (await import('cloudflare:workers')) as CfWorkersBinding
   } catch {
     cfModule = null
@@ -220,10 +221,17 @@ async function readKv(id: string): Promise<DailyData | null> {
 async function putKv(kv: DailyKv, id: string, data: DailyData): Promise<void> {
   const key = kvKey(id)
   const prev = await kv.get(key)
+  // 读回来的是上次写的 JSON；内容坏了就当「没有上一条」—— 宁可多写一次，
+  // 也不能因为一条坏记录把写入卡死（那样就永远停在旧快照上了）
+  let prevLast: number | undefined
   if (prev) {
-    const prevLast = (JSON.parse(prev) as DailyData)?.dates?.at(-1)
-    if (prevLast === data.dates.at(-1)) return
+    try {
+      prevLast = (JSON.parse(prev) as DailyData)?.dates?.at(-1)
+    } catch {
+      prevLast = undefined
+    }
   }
+  if (prevLast === data.dates.at(-1)) return
   await kv.put(key, JSON.stringify(data))
 }
 
@@ -295,7 +303,31 @@ async function fetchYahoo(def: IndexDef): Promise<DailyData | null> {
 }
 
 /**
- * 从东方财富 push2his 拉某个 A 股指数的全量日线。
+ * 东方财富 kline 的取数 host，按可用性排序逐个试。
+ *
+ * ⚠️ 为什么官网那个 `push2his.eastmoney.com` 不在第一位（2026-09-16 实测）：
+ * 从 Cloudflare 边缘（colo SJC）打它的 /api/qt/stock/kline/get **100% 返回 520**
+ * （`error code: 520`），带不带 UA/Referer、http/https 都一样；同一个 host 的
+ * /trends2/get 却是 200 —— 是东财 WAF 按路径拦了机房 IP，不是域名挂了、也不是请求头不对。
+ * 直接后果：Worker 里 A 股实时抓取一直失败 → 全走内置快照（KV 里一条 A 股记录都没有，
+ * 因为 KV 只在抓取成功时才写）。
+ *
+ * 编号集群节点（1./2./7.…）是独立的源站集群，实测从同一边缘 5 个 A 股指数全量历史都能拿到，
+ * 且与官网域名数据一致（中证A500 末根 2026-09-16 收 5537.96，两边同值）。
+ * 官网域名留作最后兵底：万一哪天编号节点也上了同一条规则，而官网那条又放开。
+ *
+ * 代价：首个 host 不可用时要多等一次往返（实测 0.2~2.6s），但 20 分钟才抓一次且结果进缓存，
+ * 对页面无感。注意：`scripts/build-seed.mjs`（本地跑的）仍用官网域名 ——
+ * 本地是住宅 IP，没这个限制，两边不必强行统一。
+ */
+const EASTMONEY_KLINE_HOSTS = [
+  'https://1.push2his.eastmoney.com',
+  'https://2.push2his.eastmoney.com',
+  'https://push2his.eastmoney.com',
+]
+
+/**
+ * 从东方财富拉某个 A 股指数的全量日线。
  *
  * Yahoo 对 A 股指数基本没有历史（000300.SS 仅 2021 年起、399006.SZ 无数据、
  * 其余多数 firstTradeDate 为 null），所以 A 股必须走这个源。
@@ -306,50 +338,69 @@ async function fetchYahoo(def: IndexDef): Promise<DailyData | null> {
  * 收盘价取第 3 列（索引 2）。
  */
 async function fetchEastmoney(def: IndexDef): Promise<DailyData | null> {
-  const url =
-    'https://push2his.eastmoney.com/api/qt/stock/kline/get' +
+  const path =
+    '/api/qt/stock/kline/get' +
     `?secid=${encodeURIComponent(def.symbol)}` +
     '&fields1=f1,f2,f3,f4,f5,f6' +
     '&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61' +
     '&klt=101&fqt=1&beg=0&end=20500101&lmt=1000000'
 
-  try {
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': USER_AGENT,
-        Accept: 'application/json',
-        // 东方财富对缺失 Referer 的请求偶发拒绝
-        Referer: 'https://quote.eastmoney.com/',
-      },
-    })
-    if (!res.ok) return null
-    const json = (await res.json()) as EastmoneyKlineResponse
-    const klines = json?.data?.klines
-    if (!klines?.length) return null
+  for (const host of EASTMONEY_KLINE_HOSTS) {
+    try {
+      const res = await fetch(host + path, {
+        headers: {
+          'User-Agent': USER_AGENT,
+          Accept: 'application/json',
+          // 东方财富对缺失 Referer 的请求偶发拒绝
+          Referer: 'https://quote.eastmoney.com/',
+        },
+      })
+      if (!res.ok) {
+        // 保留诊断：这一层静默失败曾经让我们只能靠写探针 worker 才找到 520
+        console.error(`[eastmoney] ${host} → HTTP ${res.status}（${def.id}）`)
+        continue
+      }
+      const json = (await res.json()) as EastmoneyKlineResponse
+      const klines = json?.data?.klines
+      if (!klines?.length) {
+        // 有些 host（如 push2 / push2delay）会回 200 但 dktotal=0、不带 klines
+        console.error(`[eastmoney] ${host} 返回成功但无 klines（${def.id}）`)
+        continue
+      }
 
-    const dates: number[] = []
-    const values: number[] = []
-    for (const row of klines) {
-      const parts = row.split(',')
-      if (parts.length < 3) continue
-      const d = Number(parts[0].replace(/-/g, ''))
-      const c = Number(parts[2])
-      if (!Number.isFinite(d) || !Number.isFinite(c) || c <= 0) continue
-      dates.push(d)
-      values.push(c)
-    }
-    if (dates.length < 1000) return null
+      const dates: number[] = []
+      const values: number[] = []
+      for (const row of klines) {
+        const parts = row.split(',')
+        if (parts.length < 3) continue
+        const d = Number(parts[0].replace(/-/g, ''))
+        const c = Number(parts[2])
+        if (!Number.isFinite(d) || !Number.isFinite(c) || c <= 0) continue
+        dates.push(d)
+        values.push(c)
+      }
+      if (dates.length < 1000) {
+        console.error(`[eastmoney] ${host} 历史太短（${def.id}：${dates.length} 根）`)
+        continue
+      }
 
-    return {
-      dates,
-      closes: values,
-      source: 'live',
-      provider: `东方财富（${def.symbol}）`,
-      fetchedAt: new Date().toISOString(),
+      return {
+        dates,
+        closes: values,
+        source: 'live',
+        provider: `东方财富（${def.symbol}）`,
+        fetchedAt: new Date().toISOString(),
+      }
+    } catch (e) {
+      // 不 rethrow：本循环的语义是「这个 host 不行就换下一个」，
+      // 三个都不行时用 return null 告诉上层去走兜底链。
+      console.error(
+        `[eastmoney] ${host} 取数异常（${def.id}）：${e instanceof Error ? e.message : String(e)}`,
+      )
     }
-  } catch {
-    return null
   }
+  // 三个 host 全不行 —— 交给上层回落下一级兜底（缓存 / KV / 快照）
+  return null
 }
 
 function fetchLive(def: IndexDef): Promise<DailyData | null> {

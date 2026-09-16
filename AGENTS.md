@@ -143,7 +143,18 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
 9. **双数据源**。注册表 `provider` 字段派发：美股走 Yahoo `chart` API
    （标普 `^GSPC`、纳指100 `^NDX`）；A 股走东方财富 `push2his`（`parts[2]` 才是
    收盘价，限流严重，已有重试 + 间隔，新增 A 股标的直接复用 `fetchEastmoney`）。
-   从 Cloudflare 出口 IP 实测东财可用（偶发单次失败会回落快照标签，20 分钟自愈）。
+
+   ⚠️ **A 股取数据的 host 是列表，不是官网域名**（`EASTMONEY_KLINE_HOSTS`）。
+   2026-09-16 实测：从 Cloudflare 边缘打 `push2his.eastmoney.com` 的
+   `/api/qt/stock/kline/get` **100% 返回 520**（带不带 UA/Referer、http/https 都一样；
+   同 host 的 `/trends2/get` 却是 200 → 是东财 WAF 按路径拦了机房 IP）。
+   当时的表象：A 股 5 个指数线上全挂「快照」标签、KV 里一条 A 股记录都没有
+   （KV 只在抓取成功时才写），因为那一层是 `catch { return null }` 静默失败 + 没有日志，
+   只能靠临时探针 worker 才定位到。所以：①host 列表按可用性排序、逐个试；
+   ②**三个 host 全失败时用 `console.error` 留痕**（不要改回静默 return，observability 靠它）。
+   编号集群节点（`1./2.push2his`）是独立源站集群，实测 5 个 A 股指数全量历史都能拿到，
+   与官网域名数据一致；官网域名留作最后兜底。`scripts/build-seed.mjs`（本地跑）
+   仍用官网域名 —— 住宅 IP 没这个限制，两边不必强行统一。
 
 10. **dev 与 build 互斥**。dev server 运行时跑 `vite build` 会争抢
     `routeTree.gen.ts`（"modified by another process"），且路由增删后 dev 会一直

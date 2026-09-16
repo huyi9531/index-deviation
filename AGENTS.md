@@ -2,9 +2,9 @@
 
 ## 项目概述
 
-多指数偏离度监控看板：用对数偏离度 `100 × ln(收盘 ÷ N日均线)` 量化 6 个指数
-（标普500 / 纳斯达克100 / 沪深300 / 中证A500 / 中证500 / 创业板指）的超买超卖位置，
-并用全量历史统计各阈值下的前瞻胜率与超额。
+多指数偏离度监控看板：用对数偏离度 `100 × ln(收盘 ÷ N日均线)` 量化 7 个指数
+（标普500 / 纳斯达克100 / 沪深300 / 中证A500 / 中证500 / 创业板指 / 科创50）
+的超买超卖位置，并用全量历史统计各阈值下的前瞻胜率与超额。
 
 技术栈：TanStack Start 1.168（React 19 + TanStack Router，文件路由）+ Vite 8 +
 Tailwind v4 + Zod 4，目标运行时 Cloudflare Workers（`@cloudflare/vite-plugin`）。
@@ -159,10 +159,30 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
 
 ### 新增一个指数（最短路径）
 
+总览、详情、历史证据、API、离线兜底会自动生效，无需新增页面。
+但下面 8 处必须手动接线 —— 前 4 处是数据链路（漏了页面就 500），
+后 4 处是断言与文案（漏了不会报错，但会静默不覆盖 / 数字写错）：
+
+**数据链路**
 1. `registry.ts` 的 `INDICES` 加条目（id / symbol / market / provider / currency /
-   liveSince / 标定后的 action 水位，未标定写 `null`）；
-2. `source.server.ts` 的 `SEEDS` 加一条 `?raw` 导入；
-3. `scripts/build-seed.mjs` 的 `TARGETS` 加同名条目，跑 `npm run seed <id>`；
-4. `.smoke/check.mjs` 的 `checks` 表补该指数的路由断言；
-5. 跑 `node .smoke/calibrate.mjs` 标定水位，有达标档位才填 `action`。
-总览、详情、历史证据、API、离线兜底自动生效，无需新增任何页面。
+   liveSince / 标定后的 action 水位，未标定写 `null`），并同步 `IndexId` 联合类型；
+2. `src/data/<id>-daily.csv` 加离线快照；
+3. `source.server.ts` 的 `SEEDS` 加一条 `?raw` 导入；
+4. `scripts/build-seed.mjs` 的 `TARGETS` 加同名条目，跑 `node scripts/build-seed.mjs <id>`。
+
+**断言与文案**
+5. `.smoke/check.mjs`：`checks` 表补路由断言，**同时**在 `apiPaths` 加 `/api/<id>`，
+   并把 `/api/all` 的 `json.count !== N` 断言 +1；
+6. `scripts/verify.mjs` 的 `INDICES` 手抄表加条目（它故意不引用 registry，
+   靠人抄来保证「独立复算」的独立性 —— 漏了就不会校验新指数）；
+7. `src/routes/index.tsx` 的「N 个主要指数」文案；
+8. `src/routes/method.tsx` 的「覆盖标的」与「数据源」两段（指数清单、数据起点）。
+
+最后 `node .smoke/calibrate.mjs` 标定水位，有达标档位才填 `action`。
+
+⚠️ **标定规则目前是分裂的**：`calibrate.mjs` 用「20 日绝对胜率」，而 registry 里已发布的
+水位用的是「60 日胜率 − 常态基线 ≥ +3pp」（两者取最浅档）。两套规则值不同（实测：
+中证A500 dev60 前者给 -5、registry 写 null）。**以 registry 的口径为准**，改水位前先读
+`calibrate.mjs` 顶部的警告；这个不统一已在 `.agents/plans/` 里立项待修。比如
+科创50（2026-09 新增）：按 registry 口径得 dev60 -4% / dev200 -16%，
+而 `calibrate.mjs` 会给出 -9% / -14% —— 后者**没有**被采用。

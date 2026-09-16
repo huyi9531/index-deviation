@@ -28,6 +28,7 @@ const INDICES = [
   { id: 'a500', market: 'cn', action: { dev60: null, dev200: -12 } },
   { id: 'csi500', market: 'cn', action: { dev60: -8, dev200: -20 } },
   { id: 'chinext', market: 'cn', action: { dev60: -8, dev200: -14 } },
+  { id: 'star50', market: 'cn', action: { dev60: -4, dev200: -16 } },
 ]
 
 /** 与 src/lib/indices/types.ts 的 ERAS_US / ERAS_CN 一致 */
@@ -316,7 +317,11 @@ for (const r of results) {
 
 console.log(
   failed === 0
-    ? `\n全部 6 个指数一致 ✓  逐位精确 ${strict} 个，盘中容差 ${loose} 个\n`
+    ? `\n全部 ${INDICES.length} 个指数一致 ✓  逐位精确 ${strict} 个，盘中容差 ${loose} 个\n`
     : `\n${failed} 个指数对拍失败 ✗\n`,
 )
-process.exit(failed === 0 ? 0 : 1)
+// 用 exitCode 而不是 process.exit()：对拍会依次发若干个 fetch，
+// undici 的保活连接在 process.exit() 的硬退出路径上会撞到 libuv 的
+// `!(handle->flags & UV_HANDLE_CLOSING)` 断言（Windows + Node 25 实测），
+// 表现为验证全通过却返回退出码 127。交给事件循环自然收尾即可。
+process.exitCode = failed === 0 ? 0 : 1

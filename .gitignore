@@ -15,6 +15,12 @@ worker-configuration.d.ts
 .smoke/shots
 .smoke/*.html
 
+# 个股 / 成分股专项研究的抓取数据与生成物（可重跑脚本重建，体积大）
+.smoke/_stockprobe/raw
+.smoke/_stockprobe/stocks
+.smoke/_stockprobe/*.html
+.smoke/_stockprobe/lib.mjs
+
 # 工具/缓存目录（非项目源码）
 .tanstack
 .workbuddy

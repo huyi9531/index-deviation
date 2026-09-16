@@ -4,20 +4,22 @@
 再用尽可能长的真实历史，统计每个偏离水平之后 5 / 10 / 20 / 60 个交易日的
 上涨或下跌概率。数据每日自动更新，部署在 Cloudflare Workers。
 
-当前覆盖 **6 个指数，跨两个市场**：
+当前覆盖 **7 个指数，跨两个市场**：
 
 | 市场 | 指数 | 代码 | 数据源 | 数据起点 |
 | --- | --- | --- | --- | --- |
 | 美股 | 标普500 | `^GSPC` | Yahoo Finance | 1950 |
-| 美股 | 纳斯达克综合 | `^IXIC` | Yahoo Finance | 1971 |
+| 美股 | 纳斯达克100 | `^NDX` | Yahoo Finance | 1985 |
 | A 股 | 沪深300 | `000300` | 东方财富 | 2005 |
 | A 股 | 中证A500 | `000510` | 东方财富 | 2005（含回溯段） |
 | A 股 | 中证500 | `000905` | 东方财富 | 2005（含回溯段） |
 | A 股 | 创业板指 | `399006` | 东方财富 | 2010 |
+| A 股 | 科创50 | `000688` | 东方财富 | 2020（基日 2019-12-31，发布日 2020-07-23） |
 
 数据源按市场分两条，不能共用：**Yahoo 对 A 股指数基本是「有代码无历史」**
-（沪深300 只从 2021 年起、创业板指完全没有数据），所以 A 股走东方财富
-`push2his` 日线接口（`klt=101` 日线、`fqt=1` 前复权）。
+（沪深300 只从 2021 年起、创业板指完全没有数据、科创50 只返回 1 根 K 线），
+所以 A 股走东方财富 `push2his` 日线接口（`klt=101` 日线、`fqt=1` 前复权）。
+东财限流时 `build-seed.mjs` 会降级到新浪 getKLineData 兜底，并在 meta 里记录实际用了哪个源。
 
 - 框架：TanStack Start（React 19 + TanStack Router）
 - 运行时：Cloudflare Workers（`@cloudflare/vite-plugin`）
@@ -180,7 +182,7 @@ A 股宽基约 53~56%。所以「≤ −10% 时胜率 62.4%」几乎等于没有
 
 Worker 免费版每个请求的 CPU 时间很紧，而全量重算不是免费的
 （单指数就是 5,000~19,000 个交易日 × 26 个阈值 × 4 个前瞻窗口，
-现在有 6 个指数）。`cachedJson()` 做了「内存 → Cache API」
+现在有 7 个指数）。`cachedJson()` 做了「内存 → Cache API」
 两级缓存，命中时几乎不耗 CPU；缓存 key 里带 indexId，各指数互不干扰。
 
 改了统计口径务必把 `src/lib/indices/service.ts` 里的 `CACHE_VERSION` 加一，
@@ -223,7 +225,7 @@ src/
     <id>-meta.json       快照元信息
 scripts/
   build-seed.mjs     抓取全量历史 → 刷新离线快照（支持指定指数，双数据源 + 重试）
-  verify.mjs         独立复算脚本：重算 6 个指数的关键统计量，再跟 /api 对拍
+  verify.mjs         独立复算脚本：重算 7 个指数的关键统计量，再跟 /api 对拍
 .smoke/              本地验证脚本（仅开发用）
   check.mjs            路由冒烟：逐页断言关键内容 + JSON 接口
   weigh.mjs            统计各页可见中文量，防止「越改越啰嗦」
@@ -351,7 +353,7 @@ node .smoke/check.mjs            # 逐个路由断言内容 + JSON 接口
 node .smoke/weigh.mjs            # 各页可见中文量（防止内容膨胀）
 node .smoke/shots.mjs            # 截图 + 横向溢出 + 控制台报错（需 Chrome）
 node .smoke/check-backfill.mjs   # 回溯段接缝检验
-node scripts/verify.mjs          # 独立复算 6 个指数 + 与 /api 对拍
+node scripts/verify.mjs          # 独立复算 7 个指数 + 与 /api 对拍
 node scripts/verify.mjs --offline           # 服务没起时只做本地复算
 node scripts/verify.mjs --base=http://localhost:4173
 ```

@@ -1,0 +1,11 @@
+{
+  "id": "star50",
+  "symbol": "1.000688",
+  "provider": "eastmoney",
+  "name": "科创50",
+  "source": "新浪财经 getKLineData（东财限流时的兜底源；指数无复权问题）",
+  "fetchedAt": "2026-09-16T07:32:50.137Z",
+  "firstDate": "20200102",
+  "lastDate": "20260915",
+  "tradingDays": 1626
+}

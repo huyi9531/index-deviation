@@ -18,6 +18,7 @@ const checks = [
       '中证A500',
       '中证500',
       '创业板指',
+      '科创50',
       '近一年 200 日偏离度',
       '同类位置 20 日超额',
       'A 股',
@@ -85,6 +86,16 @@ const checks = [
   ['/stats/hs300', ['历史证据', '常态', '2016 年后', '2019 年后'], ['1970 年后'], 200],
   // 无标定水位的口径要如实说明（该文案由详情页的行动水位时期表承载）
   ['/stats/nasdaq', ['历史证据', '历史极端低点'], [], 200],
+  // 科创50：数据起点 2020-01-02，晚于全部 A 股时代分段的起点，
+  // 所以 since2010/2016/2019 都会被 activeErasFor 自动隐藏（只剩「全部历史」）。
+  // 统计窗口起自 2020-11-02，已晚于发布日 2020-07-23 → 回溯段进不了统计，不标回溯。
+  [
+    '/i/star50',
+    ['科创50', '东方财富', '¥', '到 -16% 水位', '常态（不设条件）'],
+    ['含回溯段', '2010 年后', '2016 年后', '2019 年后'],
+    200,
+  ],
+  ['/stats/star50', ['历史证据', '历史极端低点'], ['1970 年后'], 200],
   ['/method', ['统计方法', '为什么逃顶天然更难', 'GET /api/{indexId}', '回溯段（重要）'], [], 200],
   // 非法指数：详情页 404（不是回落到默认指数）
   ['/i/nope', ['这里没有页面'], [], 404],
@@ -127,6 +138,7 @@ const apiPaths = [
   '/api/a500',
   '/api/csi500',
   '/api/chinext',
+  '/api/star50',
   '/api/all',
   '/api/nope',
 ]
@@ -136,7 +148,7 @@ for (const path of apiPaths) {
   let summary
   if (path === '/api/all') {
     summary = `count=${json.count} actionable=${json.actionable}`
-    if (json.count !== 6) bad++
+    if (json.count !== 7) bad++
   } else if (json.ok) {
     if (json.market !== 'us' && json.market !== 'cn') bad++
     const t = json.flags.map((f) => (f.threshold === null ? 'null' : f.threshold)).join('/')

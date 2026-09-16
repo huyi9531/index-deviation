@@ -4,6 +4,15 @@
  * 之所以必须分指数标定：A 股的偏离度摆幅远大于美股，-8% / -10% 对创业板指太浅
  * （几乎每年都触发），对沪深300 又偏深。用同一组数字是错的。
  *
+ * ⚠️⚠️ 本脚本的选档规则与 registry.ts 已发布的水位**不是同一个口径**：
+ *   本脚本：20 日**绝对**胜率 ≥ [0.60, 0.58, 0.56]，取最浅档。
+ *   registry：60 日胜率相对常态基线的**超额** ≥ +3pp，取最浅档（见 AGENTS.md）。
+ *   两套规则给出的值不一样（实测：中证A500 dev60 本脚本给 -5、registry 写 null；
+ *   创业板指 dev60 本脚本给 -10、registry 写 -8）。
+ *   **本脚本的 JSON 输出不得直接抄进 registry.ts。**
+ *   这个不统一已在 .agents/plans/2026-09-16T03-06-14-995Z-plan.md 第 8 条立项，
+ *   待单独一轮把本脚本改成超额口径后再用。
+ *
  * 只读 src/data/*.csv，不写文件。
  */
 import { readFile } from 'node:fs/promises'
@@ -18,6 +27,7 @@ const LIST = [
   ['a500', '中证A500'],
   ['csi500', '中证500'],
   ['chinext', '创业板指'],
+  ['star50', '科创50'],
 ]
 
 const DEV60 = [-4, -5, -6, -7, -8, -9, -10, -12, -15, -18]
@@ -178,6 +188,8 @@ for (const [id, cn] of LIST) {
       : '样本不足，不设水位'
   console.log(`  ${cn.padEnd(12)} ${f(a).padEnd(34)} ${f(b)}`)
 }
+console.log('\n⚠️  注意：以上为「20 日绝对胜率」口径，与 registry.ts 的「60 日超额≥+3pp」口径不同，')
+console.log('    输出不得直接抄进 registry.ts。详见本文件顶部注释。')
 console.log('\nJSON:')
 console.log(
   JSON.stringify(

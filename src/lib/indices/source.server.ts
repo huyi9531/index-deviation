@@ -16,6 +16,7 @@
  */
 import a500Seed from '~/data/a500-daily.csv?raw'
 import chinextSeed from '~/data/chinext-daily.csv?raw'
+import star50Seed from '~/data/star50-daily.csv?raw'
 import csi500Seed from '~/data/csi500-daily.csv?raw'
 import hs300Seed from '~/data/hs300-daily.csv?raw'
 import nasdaqSeed from '~/data/nasdaq-daily.csv?raw'
@@ -39,6 +40,7 @@ const SEEDS: Record<string, string> = {
   a500: a500Seed,
   csi500: csi500Seed,
   chinext: chinextSeed,
+  star50: star50Seed,
 }
 
 /** 统一从 1948 年拉起，保证 200 日均线有足够预热期 */

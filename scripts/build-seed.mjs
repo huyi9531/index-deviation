@@ -6,7 +6,13 @@
  *   eastmoney —— A 股指数（东方财富 push2his），全历史可得
  *
  * 之所以 A 股不能用 Yahoo：它对 A 股指数基本没有历史数据
- * （000300.SS 仅 2021 年起、399006.SZ 无数据、其余多数 firstTradeDate 为 null）。
+ * （000300.SS 仅 2021 年起、399006.SZ 无数据、000688.SS 只有 1 根 K 线）。
+ *
+ * 东财限流兜底：连续请求下东财会整段拒连（表现为 fetch failed / HTTP 000，
+ * 与本机网络无关，实测整个 IP 被封一段时间）。全败后降级到新浪 getKLineData，
+ * 并在 meta.json 的 source 字段如实记录本次实际用了哪个源。
+ * 实测新浪与东财逐日对拍：中位相对差 0.0001%、最大 0.03%（小数位取整量级）。
+ * ⚠️ 新浪上限 4000 根，触顶一律拒绝写入 —— 静默截断历史会默默改变全部统计口径。
  *
  * 输出：src/data/<id>-daily.csv   —— 纯 CSV 文本 "YYYYMMDD,close"，供 ?raw 导入
  *       src/data/<id>-meta.json  —— 快照元信息（仅备查，运行时不读）
@@ -82,6 +88,13 @@ const TARGETS = [
     provider: 'eastmoney',
     symbol: '0.399006',
     name: '创业板指',
+    probes: {},
+  },
+  {
+    id: 'star50',
+    provider: 'eastmoney',
+    symbol: '1.000688',
+    name: '科创50',
     probes: {},
   },
 ]
@@ -171,6 +184,46 @@ async function fetchEastmoney(secid) {
   return rows
 }
 
+/** 新浪单次上限，触顶意味着历史被截断，必须拒绝写入 */
+const SINA_MAX_BARS = 4000
+
+/** 东财 secid → 新浪 symbol：1.=沪、0.=深 */
+function sinaSymbol(secid) {
+  const [mkt, code] = secid.split('.')
+  return `${mkt === '1' ? 'sh' : 'sz'}${code}`
+}
+
+/**
+ * 新浪财经：返回 [{date, close}]。仅作东财限流时的兜底源。
+ * 指数没有复权问题，所以不复权的前收价在这里是可用的（个股不行）。
+ */
+async function fetchSina(secid) {
+  const code = sinaSymbol(secid)
+  const url =
+    'https://money.finance.sina.com.cn/quotes_service/api/json_v2.php' +
+    `/CN_MarketData.getKLineData?symbol=${code}&scale=240&ma=no&datalen=${SINA_MAX_BARS}`
+  const res = await fetch(url, {
+    headers: { 'User-Agent': UA, Referer: 'https://finance.sina.com.cn/' },
+  })
+  if (!res.ok) throw new Error(`新浪 HTTP ${res.status}`)
+  const json = await res.json()
+  if (!Array.isArray(json) || !json.length) throw new Error('新浪返回空数组')
+  if (json.length >= SINA_MAX_BARS) {
+    throw new Error(
+      `新浪返回 ${json.length} 根，已触 ${SINA_MAX_BARS} 上限，历史被截断 —— 拒绝写入`,
+    )
+  }
+
+  const rows = []
+  for (const r of json) {
+    const date = String(r.day ?? '').replace(/-/g, '')
+    const close = Number(r.close)
+    if (!/^\d{8}$/.test(date) || !Number.isFinite(close) || close <= 0) continue
+    rows.push({ date, close })
+  }
+  return rows
+}
+
 const only = process.argv.slice(2)
 const targets = only.length ? TARGETS.filter((t) => only.includes(t.id)) : TARGETS
 
@@ -179,15 +232,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 /**
  * 东方财富对连续请求限流较凶，表现为 `fetch failed`，必须带退避重试。
  * 实测 4 次 × 1.2s 递增仍会失败，所以给到 6 次 × 2.5s 递增。
+ * 退避尽尽后降级新浪（见 fetchSina）；仍不成则抛错，不写半个快照。
  * 这也是运行时 source.server.ts 必须做「离线快照兜底」的原因。
  */
 async function fetchWithRetry(target, attempts = 6) {
   let lastErr
   for (let i = 1; i <= attempts; i++) {
     try {
-      return target.provider === 'eastmoney'
-        ? await fetchEastmoney(target.symbol)
-        : await fetchYahoo(target.symbol)
+      if (target.provider === 'eastmoney') {
+        return {
+          rows: await fetchEastmoney(target.symbol),
+          via: '东方财富 push2his（klt=101 日线，fqt=1 前复权）',
+        }
+      }
+      return { rows: await fetchYahoo(target.symbol), via: 'Yahoo Finance chart API' }
     } catch (err) {
       lastErr = err
       if (i < attempts) {
@@ -195,6 +253,13 @@ async function fetchWithRetry(target, attempts = 6) {
         console.warn(`[seed] ${target.id} 第 ${i} 次失败（${err.message}），${wait}ms 后重试`)
         await sleep(wait)
       }
+    }
+  }
+  if (target.provider === 'eastmoney') {
+    console.warn(`[seed] ${target.id} 东财 ${attempts} 次均失败（${lastErr.message}），降级新浪兜底源`)
+    return {
+      rows: await fetchSina(target.symbol),
+      via: '新浪财经 getKLineData（东财限流时的兜底源；指数无复权问题）',
     }
   }
   throw lastErr
@@ -211,8 +276,7 @@ let failed = 0
 
 for (const target of targets) {
   try {
-    const raw = await fetchWithRetry(target)
-
+    const { rows: raw, via } = await fetchWithRetry(target)
     const rows = raw.map((r) => `${r.date},${r.close.toFixed(2)}`).sort()
 
     if (rows.length < 300) throw new Error(`只拿到 ${rows.length} 行，样本太少，放弃写入`)
@@ -250,10 +314,7 @@ for (const target of targets) {
           symbol: target.symbol,
           provider: target.provider,
           name: target.name,
-          source:
-            target.provider === 'eastmoney'
-              ? '东方财富 push2his（klt=101 日线，fqt=1 前复权）'
-              : 'Yahoo Finance chart API',
+          source: via,
           fetchedAt: new Date().toISOString(),
           firstDate,
           lastDate,

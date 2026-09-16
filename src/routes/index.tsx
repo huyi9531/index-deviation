@@ -78,7 +78,7 @@ function OverviewPage() {
           <p className="mt-2.5 text-[13.5px] leading-relaxed text-muted">
             60 / 200 日均线对数偏离度
             <span className="mx-2 text-line-strong">—</span>
-            六个主要指数
+            七个主要指数
             <span className="mx-2 text-line-strong">—</span>
             全历史胜率统计
           </p>

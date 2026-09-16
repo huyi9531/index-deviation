@@ -192,6 +192,11 @@ export interface CurrentStatus {
    */
   toThreshold60: number | null
   toThreshold200: number | null
+  /**
+   * 是否跌破该指数任一标定水位（唯一判定，见 stats.ts 的 waterTriggered）。
+   * 与 signal.tone 无关：tone 只看分位，不含统计优势。
+   */
+  waterTriggered: boolean
   signal: SignalLevel
   /** 当前 200 日偏离度在过去 N 日的排名（越低越少见） */
   rankText60: string
@@ -204,8 +209,6 @@ export interface SignalLevel {
   tone: SignalTone
   title: string
   desc: string
-  /** 是否出现值得行动的极端位置 */
-  actionable: boolean
 }
 
 /** 分布直方图 */
@@ -393,6 +396,11 @@ export interface OverviewRow {
   analogSamples: number
   /** 距离「行动水位」还需下跌多少（%，价格口径）。已进入水位时为 0，无水位时为 null */
   to200: number | null
+  /**
+   * 是否跌破任一标定水位。与 /api 的 `actionable` 同义、同源（stats.ts 的
+   * waterTriggered），总览页「触发关注」计数用它 —— 不再用 signal.tone 判定。
+   */
+  waterTriggered: boolean
   signal: SignalLevel
   /** 近一年 200 日偏离度（抽样，画迷你线用） */
   spark: number[]

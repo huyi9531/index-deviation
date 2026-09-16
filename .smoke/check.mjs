@@ -151,6 +151,11 @@ for (const path of apiPaths) {
     if (json.count !== 7) bad++
   } else if (json.ok) {
     if (json.market !== 'us' && json.market !== 'cn') bad++
+    // 回归护栏：纳斯达克100 两个口径都无标定水位（实测无优势，registry 写明是
+    // 「结论」不是「缺失」），因此它永远不该被算作 actionable。若有人把判定改回
+    // tone / 分位口径，这一条就会响 —— 2026-09 科创50 的浅水位曾让页面与 API
+    // 用两套判定而公开分歧，这里就是那个 bug 的哨兵。
+    if (path === '/api/nasdaq' && json.actionable !== false) bad++
     const t = json.flags.map((f) => (f.threshold === null ? 'null' : f.threshold)).join('/')
     summary =
       (json.name ?? '').padEnd(6) +

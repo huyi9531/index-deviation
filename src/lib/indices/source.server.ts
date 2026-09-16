@@ -321,7 +321,9 @@ export async function cachedJson<T>(
   if (memo && Date.now() - memo.at < ttlSeconds * 1000) return memo.value as T
 
   const cache = cfCache()
-  const url = `https://deviation-monitor.internal/payload/v4/${key}`
+  // v5: payload 结构变更（SignalLevel 去 actionable、改拎 waterTriggered）
+  // v4: 同行位置改展示超额（excess20）而非裸胜率
+  const url = `https://deviation-monitor.internal/payload/v5/${key}`
   if (cache) {
     try {
       const hit = await cache.match(url)

@@ -11,6 +11,7 @@ import { z } from 'zod'
 import { INDICES, actionOf, indexById } from './registry'
 import { buildDashboard, buildOverviewRow, buildStats, extremesFor } from './queries'
 import { buildSeries } from './series'
+import { waterTriggered } from './stats'
 import type { ComputedSeries, DataMeta, EraId, MaKey, OverviewPayload, RangeId } from './types'
 
 const INDEX = z.string().min(1).max(32)
@@ -35,7 +36,9 @@ interface Bundle {
  * 否则旧的缓存结果会在 TTL 内继续被返回，看起来像「改了没生效」。
  */
 // v5: nasdaq 从纳斯达克综合（^IXIC）换为纳斯达克100（^NDX），历史序列整体更换
-const CACHE_VERSION = 6
+// v7: 新增 star50；SignalLevel 去掉 tone 口径的 actionable、
+//     CurrentStatus/OverviewRow 改拎 waterTriggered（阈值口径唯一判定）
+const CACHE_VERSION = 7
 /** 载荷缓存时长（秒）。日线一天更新一次，20 分钟足够 */
 const TTL = 60 * 20
 
@@ -201,7 +204,8 @@ export async function alertState(indexId: string) {
     dev60: round(dev60),
     dev200: round(dev200),
     flags,
-    actionable: flags.some((f) => f.triggered),
+    // 与页面「触发关注」同源同义（stats.ts 的 waterTriggered），不再是另一套判定
+    actionable: waterTriggered(dev60, dev200, action),
   }
 }
 

@@ -157,6 +157,17 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
     （`routes` + `custom_domain: true`，自动建 DNS + 证书）；配置了 `routes` 后
     workers.dev 预览地址默认停用（404），要两个都活需显式 `"workers_dev": true`。
 
+12. **「触发关注」与 `signal.tone` 是两件事，判定的唯一处只有一处**。
+    「是否触发」= 是否跌破该指数**标定水位**，由 `stats.ts` 的 `waterTriggered()` 唯一定义，
+    总览页的 Hero 计数（`row.waterTriggered`）、详情页的「值得关注」标签
+    （`status.waterTriggered`）、`/api/*` 的 `actionable` 三处**必须都调它**。
+    而 `signal.tone`（cold/cool/neutral/warm/hot）只看**该时期内的相对分位**，
+    不含统计优势，只配颜色和文案。两套口径曾各自实现：2026-09 科创50 的 −4%
+    浅水令它们公开分歧（API 说 actionable=true、页面「触发关注」显示 0 个）。
+    判据：纳指100 两个水位都是 `null`（实测无优势），它**永远不该**被算作触发 ——
+    改用分位口径就会把它重新算成「值得关注」，直接达反产品的诚实性立场。
+    `.smoke/check.mjs` 里对此加了断言嗂兵。
+
 ### 新增一个指数（最短路径）
 
 总览、详情、历史证据、API、离线兜底会自动生效，无需新增页面。

@@ -322,6 +322,27 @@ export function revertStats(
   }
 }
 
+/**
+ * 是否跌破该指数任一**标定水位**。
+ *
+ * 这是「现在该不该关注」的唯一判定口径：页面「触发关注」计数与 `/api` 的
+ * `actionable` 字段都必须调它。两处曾经各写了一份自己的判定，2026-09 科创50
+ * 的 −4% 浅水位让它们公开分歧（API 说 true、页面说 false）才暴露出来。
+ *
+ * 注意它与 `signal.tone` 是**两件不同的事**：tone 描述「在该时期分布里的相对位置」，
+ * 只看分位、不含统计优势；水位是逐指数标定、有实测超额支撑的门槛。
+ * 纳指100 两个水位都是 null（实测无优势），所以它永远不会触发 —— 这正是
+ * 产品「没有统计优势就不诱导操作」的立场，若改用分位判定就会把它破坏掉。
+ */
+export function waterTriggered(
+  dev60: number,
+  dev200: number,
+  action: { dev60: number | null; dev200: number | null },
+): boolean {
+  const below = (value: number, level: number | null) => level !== null && value <= level
+  return below(dev60, action.dev60) || below(dev200, action.dev200)
+}
+
 /** 当前状态 + 信号判定。action 为该指数的行动水位（实测标定），可为 null 表示无水位 */
 export function currentStatus(
   s: ComputedSeries,
@@ -348,27 +369,22 @@ export function currentStatus(
     cold: {
       title: '极值区 · 历史级位置',
       desc: '偏离度处于该时期最极端的 2% 区间。历史上这种位置出现后，后续反弹概率明显高于常态。',
-      actionable: true,
     },
     cool: {
       title: '偏低区 · 可分批',
       desc: '偏离度低于该时期 90% 的交易日，向下空间通常已被压缩。',
-      actionable: true,
     },
     neutral: {
       title: '中性区 · 无极端信号',
       desc: '偏离度在常态范围内波动，不构成逃顶或抄底依据。',
-      actionable: false,
     },
     warm: {
       title: '偏热区 · 不宜追高',
       desc: '偏离度高于该时期 90% 的交易日，短期回撤概率抬升；但横盘不动、均线继续上移，同样能让偏离度回落，所以这个信号的可操作性低于抄底。',
-      actionable: false,
     },
     hot: {
       title: '极值区 · 过热警戒',
       desc: '偏离度处于该时期最极端的 2% 区间。历史上逃顶胜率低于抄底，更可能是横盘而非急跌。',
-      actionable: true,
     },
   } as const
 
@@ -385,6 +401,7 @@ export function currentStatus(
     pct200,
     toThreshold60: priceMoveTo(s.dev60[i], action.dev60),
     toThreshold200: priceMoveTo(s.dev200[i], action.dev200),
+    waterTriggered: waterTriggered(s.dev60[i], s.dev200[i], action),
     signal,
     rankText60: rankText(pct60, '低于'),
     rankText200: rankText(pct200, '低于'),

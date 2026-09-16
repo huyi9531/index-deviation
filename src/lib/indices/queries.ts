@@ -323,6 +323,7 @@ export function buildOverviewRow(
     analogExcess: a.excess20,
     analogSamples: a.sampleDays,
     to200: status.toThreshold200 === null ? null : round2(status.toThreshold200),
+    waterTriggered: status.waterTriggered,
     signal: status.signal,
     spark: sparkFor(s, 'dev200', 260, 96),
     source: meta.source,

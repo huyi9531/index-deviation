@@ -97,7 +97,7 @@ export function SummaryStrip({
           <span className={`text-[15px] font-semibold ${TONE_TEXT[signal.tone]}`}>
             {signal.title}
           </span>
-          {signal.actionable ? <Tag tone="steel">值得关注</Tag> : null}
+          {status.waterTriggered ? <Tag tone="steel">值得关注</Tag> : null}
           {meta.backfillDays > 250 ? (
             <Tag tone="warn">含回溯段</Tag>
           ) : null}

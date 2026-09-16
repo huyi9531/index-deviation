@@ -64,7 +64,10 @@ function OverviewPage() {
     const tb = b.to200 === null ? Number.POSITIVE_INFINITY : Math.abs(b.to200)
     return ta - tb
   })
-  const actionable = rows.filter((r) => r.signal.actionable).length
+  // 「触发关注」= 跌破该指数**标定水位**的个数，与 /api 的 actionable 同源
+  // （曾经这里用的是 signal.tone 口径，与 API 同名不同义，2026-09 科创50 的
+  //  浅水位让两者公开分歧 —— API true、页面 0 个 —— 现已统一到阈值口径）
+  const actionable = rows.filter((r) => r.waterTriggered).length
   const lastDate = rows[0]?.date ?? 0
 
   return (

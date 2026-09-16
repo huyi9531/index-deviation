@@ -4,8 +4,8 @@
   "provider": "eastmoney",
   "name": "科创50",
   "source": "新浪财经 getKLineData（东财限流时的兜底源；指数无复权问题）",
-  "fetchedAt": "2026-09-16T07:32:50.137Z",
+  "fetchedAt": "2026-09-16T08:12:34.407Z",
   "firstDate": "20200102",
-  "lastDate": "20260915",
-  "tradingDays": 1626
+  "lastDate": "20260916",
+  "tradingDays": 1627
 }

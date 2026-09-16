@@ -158,7 +158,21 @@ interface DailyKv {
 }
 
 /**
- * 取 KV binding。
+ * `cloudflare:workers` 里我们用到的最小面。
+ *
+ * `waitUntil` 是关键：不把写 promise 挂上去，它会在请求上下文结束时被取消。
+ * 实测教训：初版用 `void writeKv(...)`，本地看着一切正常（读路径能拿到注入数据），
+ * 但生产 KV 里什么都没写进去（`wrangler kv key get --remote` 返回 404）。
+ */
+interface CfWorkersBinding {
+  env?: { DAILY_DATA?: DailyKv }
+  waitUntil?: (promise: Promise<unknown>) => void
+}
+
+let cfModule: CfWorkersBinding | null | undefined
+
+/**
+ * 取 `cloudflare:workers` 模块（带缓存，首次之后无 I/O）。
  *
  * ⚠️ 这里的 @ts-ignore 是必要的，不是偷懒：'cloudflare:workers' 的模块声明来自
  * `wrangler types` 生成的 worker-configuration.d.ts，而那个文件在 .gitignore 里 ——
@@ -166,27 +180,24 @@ interface DailyKv {
  * 在 tsc 环节直接挂掉。
  * 用它而不是 @ts-expect-error：后者在生成文件**存在**时会报「未使用的指令」，
  * 反而把另一种环境弄坏。
- * 也不能自己写无声明 shim：生成文件用的是 `export =`，会与具名导出声明冲突。
- *
- * 包一层 try/catch 是为了在无绑定的环境（如纯 Node 下跑构建脚本）优雅退回下一层。
+ * 也不能自己写 shim：生成文件用的是 `export =`，会与具名导出声明冲突。
  */
-async function kvNamespace(): Promise<DailyKv | null> {
+async function cfWorkers(): Promise<CfWorkersBinding | null> {
+  if (cfModule !== undefined) return cfModule
   try {
     // @ts-ignore 见上方说明：模块声明可能不存在于干净仓库
-    const mod = (await import('cloudflare:workers')) as {
-      env?: { DAILY_DATA?: DailyKv }
-    }
-    return mod.env?.DAILY_DATA ?? null
+    cfModule = (await import('cloudflare:workers')) as CfWorkersBinding
   } catch {
-    return null
+    cfModule = null
   }
+  return cfModule
 }
 
 const kvKey = (id: string) => `daily/${id}`
 
 /** 读「上次成功抓取」。读不到（无绑定 / 无记录 / 损坏）一律返回 null，交给下一层 */
 async function readKv(id: string): Promise<DailyData | null> {
-  const kv = await kvNamespace()
+  const kv = (await cfWorkers())?.env?.DAILY_DATA
   if (!kv) return null
   try {
     const raw = await kv.get(kvKey(id))
@@ -206,20 +217,36 @@ async function readKv(id: string): Promise<DailyData | null> {
  * 免费额度是 1000 写/天：不做去重的话，7 个指数 × 每 20 分钟一次实时抓取
  * = 504 写/天，只余一倍余量；按末日去重后降到 ~7 写/天。
  */
-async function writeKv(id: string, data: DailyData): Promise<void> {
-  const kv = await kvNamespace()
-  if (!kv) return
-  try {
-    const key = kvKey(id)
-    const prev = await kv.get(key)
-    if (prev) {
-      const prevLast = (JSON.parse(prev) as DailyData)?.dates?.at(-1)
-      if (prevLast === data.dates.at(-1)) return
-    }
-    await kv.put(key, JSON.stringify(data))
-  } catch {
-    /* 写失败不影响主流程：下一次实时抓取成功还有机会写 */
+async function putKv(kv: DailyKv, id: string, data: DailyData): Promise<void> {
+  const key = kvKey(id)
+  const prev = await kv.get(key)
+  if (prev) {
+    const prevLast = (JSON.parse(prev) as DailyData)?.dates?.at(-1)
+    if (prevLast === data.dates.at(-1)) return
   }
+  await kv.put(key, JSON.stringify(data))
+}
+
+/**
+ * 把写挂到请求生命周期上异步执行（`waitUntil`），不阻塞响应。
+ * 无绑定（纯 Node 环境）直接跳过；`waitUntil` 不可用时退回 `await`（至少不丢写）。
+ */
+async function scheduleKvWrite(id: string, data: DailyData): Promise<void> {
+  const cf = await cfWorkers()
+  const kv = cf?.env?.DAILY_DATA
+  if (!cf || !kv) return
+  const task = putKv(kv, id, data).catch(() => {
+    /* 写失败不影响主流程：下一次实时抓取成功还有机会写 */
+  })
+  try {
+    if (cf.waitUntil) {
+      cf.waitUntil(task)
+      return
+    }
+  } catch {
+    /* waitUntil 在非请求上下文会抛，退回 await */
+  }
+  await task
 }
 
 /** 从 Yahoo chart API 拉某个美股指数的全量日线 */
@@ -384,8 +411,8 @@ export async function loadDaily(indexId: string): Promise<DailyData> {
   if (live) {
     memory.set(def.id, { at: Date.now(), data: live })
     await writePlatformCache(def.id, live)
-    // 异步写 KV，不阻塞响应；只在末日推进时真写（见 writeKv）
-    void writeKv(def.id, live)
+    // 异步写 KV，不阻塞响应；只在末日推进时真写（见 putKv）
+    await scheduleKvWrite(def.id, live)
     return live
   }
 

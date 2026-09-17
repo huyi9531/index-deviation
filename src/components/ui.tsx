@@ -207,7 +207,8 @@ export function Tag({
   tone = 'neutral',
 }: {
   children: ReactNode
-  tone?: 'neutral' | 'up' | 'down' | 'amber' | 'steel' | 'warn' | 'cn' | 'us'
+  /** 市场 tone（cn/us/hk/jp）与 MarketId 一一对应，可直接把 row.market 传进来 */
+  tone?: 'neutral' | 'up' | 'down' | 'amber' | 'steel' | 'warn' | 'cn' | 'us' | 'hk' | 'jp'
 }) {
   const map: Record<string, string> = {
     neutral: 'border-line bg-surface-2 text-muted',
@@ -218,10 +219,12 @@ export function Tag({
     warn: 'border-[#e9cfb6] bg-[#fbf2e9] text-[#9c5718]',
     cn: 'border-market-cn-line bg-market-cn-bg text-market-cn-fg',
     us: 'border-market-us-line bg-market-us-bg text-market-us-fg',
+    hk: 'border-market-hk-line bg-market-hk-bg text-market-hk-fg',
+    jp: 'border-market-jp-line bg-market-jp-bg text-market-jp-fg',
   }
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11.5px] font-medium ${map[tone]}`}
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11.5px] font-medium ${map[tone]}`}
     >
       {children}
     </span>

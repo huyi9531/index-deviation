@@ -7,12 +7,41 @@ import {
 } from '@tanstack/react-router'
 import type { ErrorComponentProps } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
+import {
+  INDICES,
+  MARKET_LABEL,
+  PROVIDER_LABEL,
+  type MarketId,
+  type ProviderId,
+} from '~/lib/indices/registry'
 import appCss from '~/styles/app.css?url'
 
 const NAV = [
   { to: '/', label: '总览' },
   { to: '/method', label: '方法与数据' },
 ] as const
+
+/**
+ * 页脚的「数据来源（覆盖哪些市场）」—— **从注册表推导，不要手写**。
+ *
+ * 手写版本已经过时过一次：2026-09 加了日经225（走 Yahoo）与港股两个（走东财）之后，
+ * 页脚仍然写着「Yahoo Finance（美股）· 东方财富（A 股）」。
+ * 而这类文案没有任何断言覆盖，只能靠不硬编码来防复发。
+ */
+const PROVIDER_COVERAGE = (() => {
+  const byProvider = new Map<ProviderId, MarketId[]>()
+  for (const def of INDICES) {
+    const markets = byProvider.get(def.provider) ?? []
+    if (!markets.includes(def.market)) markets.push(def.market)
+    byProvider.set(def.provider, markets)
+  }
+  return [...byProvider]
+    .map(([p, markets]) => `${PROVIDER_LABEL[p]}（${markets.map((m) => MARKET_LABEL[m]).join(' / ')}）`)
+    .join(' · ')
+})()
+
+/** 覆盖的市场名（去重，按注册表出现顺序），同样推导而来 */
+const COVERED_MARKETS = [...new Set(INDICES.map((def) => MARKET_LABEL[def.market]))]
 
 export const Route = createRootRoute({
   head: () => ({
@@ -24,8 +53,7 @@ export const Route = createRootRoute({
       },
       {
         name: 'description',
-        content:
-          '用 60 日 / 200 日均线的对数偏离度，量化标普500、纳斯达克100与沪深300、中证A500、中证500、创业板指的超买超卖位置与历史概率。',
+        content: `用 60 日 / 200 日均线的对数偏离度，量化${COVERED_MARKETS.join('、')}共 ${INDICES.length} 个主要指数的超买超卖位置与历史概率。`,
       },
       { name: 'color-scheme', content: 'light' },
     ],
@@ -58,7 +86,9 @@ function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
             <div className="mx-auto flex h-14 max-w-[1180px] items-center gap-4 px-4 sm:gap-8 sm:px-5">
               <Link to="/" className="flex shrink-0 items-center gap-2.5">
                 <span className="flex h-7 w-7 items-center justify-center rounded-[8px] bg-ink shadow-card">
-                  <svg viewBox="0 0 32 32" className="h-[15px] w-[15px]">
+                  {/* 装饰性图标：可访问名由同一链接内的「指数偏离度监控」文字提供，
+                      所以不进无障碍树（aria-hidden），也不参与 Tab 序列（focusable=false）。 */}
+                  <svg viewBox="0 0 32 32" className="h-[15px] w-[15px]" aria-hidden="true" focusable="false">
                     <path
                       d="M5 21l6-7 5 4 6-9"
                       fill="none"
@@ -106,7 +136,7 @@ function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
             <div className="mx-auto flex max-w-[1180px] flex-wrap items-center gap-x-6 gap-y-2 px-4 py-7 text-[12px] text-faint sm:px-5">
               <div className="flex items-center gap-2">
                 <span className="font-medium text-muted">数据来源</span>
-                <span>Yahoo Finance（美股）· 东方财富（A 股）</span>
+                <span>{PROVIDER_COVERAGE}</span>
               </div>
               <span className="hidden text-line-strong sm:inline">|</span>
               <div className="flex items-center gap-2">

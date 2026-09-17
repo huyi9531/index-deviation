@@ -1,0 +1,11 @@
+{
+  "id": "hstech",
+  "symbol": "124.HSTECH",
+  "provider": "eastmoney",
+  "name": "恒生科技指数",
+  "source": "东方财富 push2his（klt=101 日线，fqt=1 前复权）",
+  "fetchedAt": "2026-09-17T02:56:18.074Z",
+  "firstDate": "20141231",
+  "lastDate": "20260917",
+  "tradingDays": 2882
+}

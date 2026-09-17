@@ -19,14 +19,30 @@ const checks = [
       '中证500',
       '创业板指',
       '科创50',
+      '恒生指数',
+      '恒生科技',
+      '日经225',
       '近一年 200 日偏离度',
       '同类位置 20 日超额',
       'A 股',
       '美股',
+      '港股',
+      '日本',
       '¥',
+      // 日元与人民币同为 ¥，所以日元刻意用 JP¥ 消歧；港币用 HK$
+      'HK$',
+      'JP¥',
       // 每个指数都要有「走势 ↗」外链（桌面表格 + 移动卡片各一处 = 每行 2 个）
       'https://finance.baidu.com/index/ab-000510',
       'https://finance.baidu.com/index/us-NDX',
+      'https://finance.baidu.com/index/hk-HSI',
+      'https://finance.baidu.com/index/hk-HZ2083',
+      'https://finance.baidu.com/index/jp-NK225',
+      // 页脚的数据来源覆盖说明是从注册表推导的。这里把「源 → 市场」的对应关系钉住：
+      // 它曾经沉默过时过一次（加了日经225 与港股后仍写「Yahoo Finance（美股）·
+      // 东方财富（A 股）」），而这类文案没有断言就没人会发现。
+      'Yahoo Finance（美股 / 日本）',
+      '东方财富（A 股 / 港股）',
     ],
     ['道琼斯工业', '罗素2000'],
     200,
@@ -102,7 +118,39 @@ const checks = [
     200,
   ],
   ['/stats/star50', ['历史证据', '历史极端低点'], ['1970 年后'], 200],
-  ['/method', ['统计方法', '为什么逃顶天然更难', 'GET /api/{indexId}', '回溯段（重要）', '百度股市通'], [], 200],
+  // ── 港股 / 日本（2026-09 新增）─────────────────────────────────────
+  // 恒生指数：数据自 1990 年，三个港股分段（1997/2014/2018）全都晚于数据起点，都该出现；
+  // 它没有回溯段（数据起点晚于指数发布），所以不能出现「含回溯段」。
+  [
+    '/i/hsi',
+    ['恒生指数', '港股', 'HK$', '东方财富', '1997 年后', '2014 年后', '2018 年后', '常态（不设条件）'],
+    ['含回溯段', '1970 年后', '2016 年后', '2019 年后'],
+    200,
+  ],
+  // 日经225：日股只有 1990/2013 两个分段，且有 1965 年以来的 15170 根样本。
+  // 它也不能出现港股 / A 股 / 美股的分段。
+  [
+    '/i/n225',
+    ['日经225', '日本', 'JP¥', 'Yahoo Finance', '1990 年后', '2013 年后', '常态（不设条件）'],
+    ['含回溯段', '1970 年后', '2014 年后', '2016 年后'],
+    200,
+  ],
+  // 恒生科技：数据源自官方基日 2014-12-31（基点 3000）开始，前 1370 根是官方标注的
+  // back-tested 假设历史 —— 必须显示「含回溯段」。且数据起点 2014-12-31 晚于
+  // since1997 / since2014 的起点，这两段会被 activeErasFor 自动隐藏。
+  [
+    '/i/hstech',
+    ['恒生科技', '港股', 'HK$', '含回溯段', '2018 年后', '并非真实可交易历史'],
+    ['1997 年后', '2014 年后', '1970 年后', '2016 年后'],
+    200,
+  ],
+  ['/stats/hsi', ['历史证据', '历史极端低点', '2018 年后'], ['1970 年后', '2016 年后'], 200],
+  [
+    '/method',
+    ['统计方法', '为什么逃顶天然更难', 'GET /api/{indexId}', '回溯段（重要）', '百度股市通', '恒生科技'],
+    [],
+    200,
+  ],
   // 非法指数：详情页 404（不是回落到默认指数）
   ['/i/nope', ['这里没有页面'], [], 404],
 ]
@@ -145,6 +193,9 @@ const apiPaths = [
   '/api/csi500',
   '/api/chinext',
   '/api/star50',
+  '/api/hsi',
+  '/api/hstech',
+  '/api/n225',
   '/api/all',
   '/api/nope',
 ]
@@ -154,9 +205,9 @@ for (const path of apiPaths) {
   let summary
   if (path === '/api/all') {
     summary = `count=${json.count} actionable=${json.actionable}`
-    if (json.count !== 7) bad++
+    if (json.count !== 10) bad++
   } else if (json.ok) {
-    if (json.market !== 'us' && json.market !== 'cn') bad++
+    if (!['us', 'cn', 'hk', 'jp'].includes(json.market)) bad++
     // 回归护栏：数据来源只允许这三态，且每一态都必须在 UI 上有对应展示。
     // 若有人加了新来源（如又加一层兜底）却没同步 UI 与文档，这一条就会响。
     if (!['live', 'cached', 'snapshot'].includes(json.meta?.source)) bad++
@@ -187,6 +238,32 @@ for (const path of apiPaths) {
     if (res.status !== 404) bad++
   }
   console.log(`${res.status}  ${path.padEnd(14)} ${summary}`)
+}
+
+/**
+ * 交叉断言：总览页的「值得关注」标记数必须等于 `/api/all` 里 actionable 的个数。
+ *
+ * 2026-09 用户反馈：「Hero 说触发 1 个，但我看不出是哪一个」—— 原因是
+ * `waterTriggered` 在总览页只被用来数了个总数，表格与移动卡片的行里都没有标记，
+ * 而同行渲染的状态标签用的是分位口径（于是那行还写着「中性区 · 无极端信号」）。
+ * 单看路由断言发现不了这种「两侧各自都能拿出来、但彼此没关系」的问题，
+ * 所以这里把「页面标记数」与「接口判定数」钉在一起。
+ *
+ * 乘 2 是因为桌面表格与移动卡片在 SSR 里都会渲染（用 CSS 切换显隐）。
+ */
+{
+  const allJson = await (await fetch(`${B}/api/all`)).json()
+  const expect = allJson.indices.filter((s) => s.actionable).length
+  const html = await (await fetch(`${B}/`)).text()
+  const marks = (html.match(/值得关注/g) || []).length
+  const ok = marks === expect * 2
+  if (!ok) bad++
+  console.log(
+    (ok ? 'OK  ' : 'FAIL') +
+      '  ' +
+      '触发标记一致性'.padEnd(14) +
+      ` 总览页「值得关注」${marks} 处，接口 actionable ${expect} 个（应互为 2 倍）`,
+  )
 }
 
 console.log(bad === 0 ? '\n全部通过 ✓' : `\n有 ${bad} 项未通过 ✗`)

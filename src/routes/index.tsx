@@ -92,7 +92,7 @@ function OverviewPage() {
           <p className="mt-2.5 text-[13.5px] leading-relaxed text-muted">
             60 / 200 日均线对数偏离度
             <span className="mx-2 text-line-strong">—</span>
-            七个主要指数
+            十个主要指数
             <span className="mx-2 text-line-strong">—</span>
             全历史胜率统计
           </p>
@@ -198,6 +198,31 @@ function HeroStat({
   )
 }
 
+/**
+ * 「值得关注」标记 —— 阈值口径（`row.waterTriggered`）在列表里的唯一可视化。
+ *
+ * 它必须与 Hero 的计数、详情页的同名标签、`/api` 的 `actionable` 同源
+ * （全由 stats.ts 的 `waterTriggered` 判定）。
+ *
+ * 2026-09 用户反馈：「Hero 说触发 1 个，但我看不出是哪一个」——当时这个标记
+ * 只存在于详情页，总览的行里根本没有，`waterTriggered` 在总览页仅被用来数了个总数。
+ *
+ * 它与旁边的状态标签是**两件不同的事**，同现一行并不矛盾：
+ *   · 状态标签 = 当前偏离度在**该时期分布里的相对分位**（不含统计优势）
+ *   · 值得关注 = 是否跌破该指数**标定水位**（有实测统计优势的门槛）
+ * 所以科创50 可以既是「中性区」（整体位置居中）又「值得关注」（60 日偏离已破 −4% 水位）。
+ * title 里写明这点，因为两套口径的分歧是最容易被误读成 bug 的地方。
+ *
+ * 位置固定在状态标签**之后**（用户 2026-09 明确要求），不要挪到前面。
+ */
+function WaterMark() {
+  return (
+    <span title="已跌破该指数标定的行动水位（阈值口径）。与左侧的状态标签不是一套判定：状态只看偏离度在该时期分布里的相对分位，不含统计优势。">
+      <Tag tone="steel">值得关注</Tag>
+    </span>
+  )
+}
+
 function Row({ row }: { row: OverviewRow }) {
   const spark = SPARK_COLOR[row.signal.tone]
   return (
@@ -213,9 +238,7 @@ function Row({ row }: { row: OverviewRow }) {
               {row.name}
             </span>
             <span className="num text-[11px] text-faint">{row.ticker}</span>
-            <Tag tone={row.market === 'cn' ? 'cn' : 'us'}>
-              {MARKET_LABEL[row.market]}
-            </Tag>
+            <Tag tone={row.market}>{MARKET_LABEL[row.market]}</Tag>
           </Link>
           <ChartLink indexId={row.id} />
         </div>
@@ -247,6 +270,13 @@ function Row({ row }: { row: OverviewRow }) {
           <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[row.signal.tone]}`} />
           {row.signal.title}
         </span>
+        {/* 「值得关注」放在状态标签**之后**：状态是该列的主体，触发标记是追加的
+            附注（用户 2026-09 明确要求，不要排在前面）。 */}
+        {row.waterTriggered ? (
+          <span className="ml-2">
+            <WaterMark />
+          </span>
+        ) : null}
         {row.source !== 'live' ? (
           <span className="ml-2">
             <Tag tone={SOURCE_BADGE[row.source].tone}>{SOURCE_BADGE[row.source].label}</Tag>
@@ -265,27 +295,34 @@ function MobileRow({ row }: { row: OverviewRow }) {
   return (
     <div className="rounded-xl border border-line bg-surface p-4 shadow-card transition-shadow active:shadow-card-hover">
       <div className="flex items-center justify-between gap-3">
-        <span className="flex min-w-0 items-center gap-2">
+        {/* flex-wrap 不能省：手机（390px）下「名称 + ticker + 市场标签 + 来源标签」
+            会超出可用宽度（实测需 202px、只有 183px）。不换行 + Tag 又没 nowrap 时，
+            flex 会把标签压成两行竖排的圆形。宁可换行，不可压形。 */}
+        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <Link
             to="/i/$indexId"
             params={{ indexId: row.id }}
-            className="text-[14.5px] font-semibold text-ink"
+            className="shrink-0 whitespace-nowrap text-[14.5px] font-semibold text-ink"
           >
             {row.name}
           </Link>
           <span className="num text-[10.5px] text-faint">{row.ticker}</span>
-          <Tag tone={row.market === 'cn' ? 'cn' : 'us'}>
-            {MARKET_LABEL[row.market]}
-          </Tag>
+          <Tag tone={row.market}>{MARKET_LABEL[row.market]}</Tag>
           {row.source !== 'live' ? (
             <Tag tone={SOURCE_BADGE[row.source].tone}>{SOURCE_BADGE[row.source].label}</Tag>
           ) : null}
         </span>
-        <span
-          className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${TONE_PILL[row.signal.tone]}`}
-        >
-          <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[row.signal.tone]}`} />
-          {row.signal.title}
+        <span className="flex shrink-0 flex-col items-end gap-1.5">
+          {/* 竖排而不横排：左侧已有名称/ticker/市场/来源四个元素，
+              390px 下再挤一个标签会撑破卡片（实测过）。
+              顺序与桌面一致：状态标签在前、「值得关注」在后（即下方）。 */}
+          <span
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${TONE_PILL[row.signal.tone]}`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[row.signal.tone]}`} />
+            {row.signal.title}
+          </span>
+          {row.waterTriggered ? <WaterMark /> : null}
         </span>
       </div>
 

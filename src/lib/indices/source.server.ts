@@ -4,7 +4,8 @@
  * 策略：
  *   1. 内存缓存（同一 isolate 复用，TTL 内直接命中）
  *   2. Cloudflare Cache API（跨 isolate 共享，TTL 内直接命中）
- *   3. 实时拉取 Yahoo Finance chart API（按指数注册表里的 symbol）
+ *   3. 实时拉取实时源：美股 / 日经225 走 Yahoo Finance chart API，
+ *      A 股 / 港股走东方财富 push2his（按指数注册表里的 provider 派发）
  *   4. 全部失败 → 回落到打包进 bundle 的离线快照，看板永不空白
  *
  * 之所以要「打包快照」兜底：Cloudflare Worker 出口是机房 IP，
@@ -19,6 +20,9 @@ import chinextSeed from '~/data/chinext-daily.csv?raw'
 import star50Seed from '~/data/star50-daily.csv?raw'
 import csi500Seed from '~/data/csi500-daily.csv?raw'
 import hs300Seed from '~/data/hs300-daily.csv?raw'
+import hsiSeed from '~/data/hsi-daily.csv?raw'
+import hstechSeed from '~/data/hstech-daily.csv?raw'
+import n225Seed from '~/data/n225-daily.csv?raw'
 import nasdaqSeed from '~/data/nasdaq-daily.csv?raw'
 import sp500Seed from '~/data/sp500-daily.csv?raw'
 import { PROVIDER_LABEL, indexByIdOrDefault, type IndexDef, type IndexId } from './registry'
@@ -46,6 +50,9 @@ const SEEDS: Record<string, string> = {
   csi500: csi500Seed,
   chinext: chinextSeed,
   star50: star50Seed,
+  hsi: hsiSeed,
+  hstech: hstechSeed,
+  n225: n225Seed,
 }
 
 /** 统一从 1948 年拉起，保证 200 日均线有足够预热期 */
@@ -82,7 +89,7 @@ function isFresh(entry: MemoryEntry): boolean {
 
 function cacheUrl(id: string): string {
   // v3: DailyData 增加成交额（amounts）字段；v2 是 nasdaq 从综合指数换为 NDX
-  return `https://deviation-monitor.internal/daily-v2/${id}`
+  return `https://deviation-monitor.internal/daily-v3/${id}`
 }
 
 async function readPlatformCache(id: string): Promise<DailyData | null> {
@@ -499,12 +506,12 @@ export async function cachedJson<T>(
   if (memo && Date.now() - memo.at < ttlSeconds * 1000) return memo.value as T
 
   const cache = cfCache()
-  // v5: payload 结构变更（SignalLevel 去 actionable、改拎 waterTriggered）
-  // v4: 同行位置改展示超额（excess20）而非裸胜率
+  // v7: 指数集合从 7 个变 10 个（新增恒生指数 / 恒生科技 / 日经225），
+  //     /api/all 的 count 与总览行数都变了
   // v6: 兜底链加 KV 层，DataMeta.source 多出 'cached' 状态
   // v5: payload 结构变更（SignalLevel 去 actionable、改拎 waterTriggered）
   // v4: 同行位置改展示超额（excess20）而非裸胜率
-  const url = `https://deviation-monitor.internal/payload/v6/${key}`
+  const url = `https://deviation-monitor.internal/payload/v7/${key}`
   if (cache) {
     try {
       const hit = await cache.match(url)

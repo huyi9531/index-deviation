@@ -36,13 +36,21 @@
   --color-cold-band: #e9f0f9;
   --color-hot-band: #fbeae4;
 
-  /* 市场 badge 底色 */
+  /* 市场 badge 底色。四个市场要彼此可分，并且避开语义色
+     （红=涨 / 绿=跌 / 钢蓝=steel / 琥珀=amber）：
+     A 股红、美股蓝、港股紫、日本青。 */
   --color-market-cn-bg: #fbeeea;
   --color-market-cn-fg: #a23222;
   --color-market-cn-line: #f0d3cc;
   --color-market-us-bg: #e9eff8;
   --color-market-us-fg: #1f5096;
   --color-market-us-line: #d0dcee;
+  --color-market-hk-bg: #f0ecf8;
+  --color-market-hk-fg: #5b3fa8;
+  --color-market-hk-line: #ded5f0;
+  --color-market-jp-bg: #e6f1f5;
+  --color-market-jp-fg: #17607a;
+  --color-market-jp-line: #cbe1e9;
 }
 
 @layer base {

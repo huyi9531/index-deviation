@@ -17,10 +17,23 @@ import type { ComputedSeries, DataMeta, EraId, MaKey, OverviewPayload, RangeId }
 const INDEX = z.string().min(1).max(32)
 const RANGE = z.enum(['5y', '10y', '20y', 'max'])
 /**
- * era 的取值必须覆盖全部市场（美股 1970/2000/2010 + A 股 2016/2019）。
+ * era 的取值必须覆盖全部市场（美股 1970/2000/2010 + A 股 2016/2019 +
+ * 港股 1997/2014/2018 + 日股 1990/2013）。
  * 具体某个指数支持哪几段由 activeErasFor 在渲染层决定，这里只做「不是脏值」的校验。
  */
-const ERA = z.enum(['all', 'since1970', 'since2000', 'since2010', 'since2016', 'since2019'])
+const ERA = z.enum([
+  'all',
+  'since1970',
+  'since2000',
+  'since2010',
+  'since2016',
+  'since2019',
+  'since1997',
+  'since2014',
+  'since2018',
+  'since1990',
+  'since2013',
+])
 const MA = z.enum(['dev60', 'dev200'])
 
 interface Bundle {
@@ -39,7 +52,8 @@ interface Bundle {
 // v7: 新增 star50；SignalLevel 去掉 tone 口径的 actionable、
 //     CurrentStatus/OverviewRow 改拎 waterTriggered（阈值口径唯一判定）
 // v8: 兜底链加 KV 层，DataMeta.source 多出 'cached' 状态
-const CACHE_VERSION = 8
+// v9: 新增港股（恒生指数 / 恒生科技）与日经225，指数集合由 7 个变 10 个
+const CACHE_VERSION = 9
 /** 载荷缓存时长（秒）。日线一天更新一次，20 分钟足够 */
 const TTL = 60 * 20
 

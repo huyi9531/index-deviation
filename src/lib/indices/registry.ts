@@ -20,17 +20,25 @@ export type IndexId =
   | 'csi500'
   | 'chinext'
   | 'star50'
+  | 'hsi'
+  | 'hstech'
+  | 'n225'
 
 /** 市场。决定历史分段口径（见 types.ts 的 ERAS_BY_MARKET）与货币符号 */
-export type MarketId = 'us' | 'cn'
+export type MarketId = 'us' | 'cn' | 'hk' | 'jp'
 
 /**
  * 数据源。
- *   yahoo     —— 美股指数，全历史可得（^GSPC 自 1950 年）
- *   eastmoney —— A 股指数，东方财富 push2his 接口，全历史可得且无需密钥
+ *   yahoo     —— 美股指数与日经225（^GSPC 自 1950 年、^N225 自 1965 年）
+ *   eastmoney —— A 股与港股指数（东方财富 push2his），全历史可得且无需密钥
  *
- * 注：Yahoo 对 A 股指数是「有代码无历史」（000300.SS 仅 2021 年起，创业板指无数据），
- * 所以 A 股必须走东方财富，不能共用同一个源。
+ * 注 1：Yahoo 对 A 股指数是「有代码无历史」（000300.SS 仅 2021 年起，创业板指无数据），
+ *       所以 A 股必须走东方财富，不能共用同一个源。
+ * 注 2：港股也走东方财富，因为 Yahoo 对恒生科技指数只有 1 根 K 线
+ *       （HSTECH.HK 与 ^HSTECH 都没有历史），拿不到统计样本；
+ *       恒生指数两边都有，但同市场用同一个源便于对照。
+ * 注 3：日经225 反过来 —— 东方财富没有这只指数（100.N225 / 100.NIKKEI 在三个
+ *       push2his host 上均返回空），而 Yahoo 有 15170 根且自 1965 年起。
  */
 export type ProviderId = 'yahoo' | 'eastmoney'
 
@@ -63,7 +71,7 @@ export interface IndexDef {
   enName: string
   /** 展示用代码 */
   ticker: string
-  currency: 'USD' | 'CNY'
+  currency: 'USD' | 'CNY' | 'HKD' | 'JPY'
   /**
    * 指数**真实发布 / 开始交易**的日期（YYYYMMDD）。
    *
@@ -104,9 +112,27 @@ export const CHART_SITE = '百度股市通'
  *   中证500       -8%   (+3.1pp, 82 次)      -20%  (+6.8pp, 24 次)
  *   创业板指       -8%   (+8.5pp, 62 次)      -14%  (+10.4pp, 53 次)
  *   科创50        -4%   (+6.7pp, 50 次)      -16%  (+9.7pp, 19 次)
+ *   恒生指数       -7%   (+5.2pp, 128 次)     -14%  (+5.9pp, 64 次)
+ *   恒生科技       -8%   (+3.7pp, 72 次)      -20%  (+8.1pp, 34 次)
+ *   日经225       -10%  (+3.0pp, 128 次)     -18%  (+3.4pp, 63 次)
  *
  * 读法：沪深300 的 60 日深跌买入在 60 日尺度上**跑不赢常态**（大盘股趋势性更强），
  * 但 200 日偏离度跌破 -12% 时胜率明显抬升；创业板指两个口径都很有效。
+ *
+ * ⚠️ 恒生科技 / 日经225 的水位要格外注意 —— 它们经不起样本外检验：
+ *   拿「前半段标定 → 后半段验证」跑一遍，两者的前半段**都标不出水位**
+ *   （恒生科技分段点 2021-04，其中还赶上一半是官方标注的 back-tested 段；
+ *    日经225 分段点 1996-03）。也就是说 -8/-20 与 -10/-18 完全由近半段样本撑起，
+ *   只在当前这个市场阶段内成立。同期检验里只有恒生指数两个口径都站得住
+ *   （前半段选出 -12% / -18%，后半段仍分别有 +40.1pp(23 次) / +33.1pp(19 次)）。
+ *   这是标普500 同源问题的又一例（它的 dev200 后半段只剩 -0.5pp），
+ *   详见 .agents/plans 里「标定规则不统一」的立项 —— 统一时应加样本外门槛，
+ *   并连同已发布的 7 个老水位一起重标。
+ *
+ * ⚠️ 恒生科技的 -8 / -20 用**含回溯段的全样本**标出（2882 根数据里前 1370 根
+ *   是官方 factsheet 明确标注为 back-tested 的假设历史），与中证A500 的处理先例一致。
+ *   紧用真实段（2020-07-27 之后，1512 个可用交易日）会得到 -6% / -18%，
+ *   比全样本口径浅 2pp —— 两套值不等价，不能混用。
  *
  * ⚠️ 科创50 的水位需注意两点：
  *   1. 统计窗口自 2020-11-02 起（数据 2020-01-02 起，前 199 根被 200 日均线预热吃掉了）。
@@ -212,6 +238,56 @@ export const INDICES: readonly IndexDef[] = [
     chartUrl: 'https://finance.baidu.com/index/ab-000688',
     action: { dev60: -4, dev200: -16 },
   },
+  // ── 港股（2026-09 新增）──────────────────────────────────────────────
+  {
+    id: 'hsi',
+    market: 'hk',
+    provider: 'eastmoney',
+    symbol: '100.HSI',
+    name: '恒生指数',
+    enName: 'Hang Seng Index',
+    ticker: 'HSI',
+    currency: 'HKD',
+    // 数据源自 1990-05-14 起，晚于该指数公开发布（1969 年），所以没有回溯段。
+    liveSince: 0,
+    // 百度给港股的代码是它自己的一套（hk-HSI），与东财的 100.HSI 不同。
+    chartUrl: 'https://finance.baidu.com/index/hk-HSI',
+    action: { dev60: -7, dev200: -14 },
+  },
+  {
+    id: 'hstech',
+    market: 'hk',
+    provider: 'eastmoney',
+    symbol: '124.HSTECH',
+    name: '恒生科技',
+    enName: 'Hang Seng TECH',
+    ticker: 'HSTECH',
+    currency: 'HKD',
+    // 恒生指数公司 official factsheet：Launch Date 2020-07-27、Base Date 2014-12-31、
+    // Base Index 3000，并明确写明「发布日之前的全部信息均为 back-tested，
+    // 反映的是假设历史表现」。数据源正好自基日 2014-12-31（收盘 3000.00）开始，
+    // 于是前 1370 根都是回溯构造段 —— 占全量数据的 48%，是中证A500 之外最严重的一个，
+    // 页面会标「含回溯段」。
+    liveSince: 20200727,
+    // 百度用的代码是 HZ2083（不是 HSTECH），已用百度 suggest 接口核实。
+    chartUrl: 'https://finance.baidu.com/index/hk-HZ2083',
+    action: { dev60: -8, dev200: -20 },
+  },
+  // ── 日本（2026-09 新增）───────────────────────────────────────────────
+  {
+    id: 'n225',
+    market: 'jp',
+    provider: 'yahoo',
+    symbol: '^N225',
+    name: '日经225',
+    enName: 'Nikkei 225',
+    ticker: 'N225',
+    currency: 'JPY',
+    // 数据源自 1965-01-05 起，晚于该指数公开发布（1950 年），所以没有回溯段。
+    liveSince: 0,
+    chartUrl: 'https://finance.baidu.com/index/jp-NK225',
+    action: { dev60: -10, dev200: -18 },
+  },
 ] as const
 
 export const DEFAULT_INDEX_ID: IndexId = 'sp500'
@@ -237,8 +313,18 @@ export function actionOf(id: string): ActionLevels {
 }
 
 /** 货币符号 */
+const CURRENCY_SYMBOL: Record<IndexDef['currency'], string> = {
+  USD: '$',
+  CNY: '¥',
+  HKD: 'HK$',
+  // ¥ 有两个所有者（人民币 / 日元），总览页上会同时出现两者的点位，
+  // 而数量级差一个量级（沪深300 四千多 vs 日经225 六万多）。
+  // 所以日元刻意写成 JP¥ 消歧 —— 不是标准写法，但比让读者猜「这个 ¥ 是哪个」好。
+  JPY: 'JP¥',
+}
+
 export function currencySymbol(currency: IndexDef['currency']): string {
-  return currency === 'CNY' ? '¥' : '$'
+  return CURRENCY_SYMBOL[currency]
 }
 
 /** 数据源展示名 */
@@ -251,4 +337,6 @@ export const PROVIDER_LABEL: Record<ProviderId, string> = {
 export const MARKET_LABEL: Record<MarketId, string> = {
   us: '美股',
   cn: 'A 股',
+  hk: '港股',
+  jp: '日本',
 }

@@ -14,7 +14,19 @@ import type { EraId, MaKey, RangeId } from './types'
  * （since2010 而不是 2010），历史上踩过这个坑。
  */
 export const eraParam = z
-  .enum(['all', 'since1970', 'since2000', 'since2010', 'since2016', 'since2019'])
+  .enum([
+    'all',
+    'since1970',
+    'since2000',
+    'since2010',
+    'since2016',
+    'since2019',
+    'since1997',
+    'since2014',
+    'since2018',
+    'since1990',
+    'since2013',
+  ])
   .optional()
   .catch(undefined)
 

@@ -29,9 +29,12 @@ const INDICES = [
   { id: 'csi500', market: 'cn', action: { dev60: -8, dev200: -20 } },
   { id: 'chinext', market: 'cn', action: { dev60: -8, dev200: -14 } },
   { id: 'star50', market: 'cn', action: { dev60: -4, dev200: -16 } },
+  { id: 'hsi', market: 'hk', action: { dev60: -7, dev200: -14 } },
+  { id: 'hstech', market: 'hk', action: { dev60: -8, dev200: -20 } },
+  { id: 'n225', market: 'jp', action: { dev60: -10, dev200: -18 } },
 ]
 
-/** 与 src/lib/indices/types.ts 的 ERAS_US / ERAS_CN 一致 */
+/** 与 src/lib/indices/types.ts 的 ERAS_US / ERAS_CN / ERAS_HK / ERAS_JP 一致 */
 const ERAS = {
   us: [
     { id: 'all', start: 0 },
@@ -44,6 +47,17 @@ const ERAS = {
     { id: 'since2010', start: 20100101 },
     { id: 'since2016', start: 20160101 },
     { id: 'since2019', start: 20190101 },
+  ],
+  hk: [
+    { id: 'all', start: 0 },
+    { id: 'since1997', start: 19970101 },
+    { id: 'since2014', start: 20140101 },
+    { id: 'since2018', start: 20180101 },
+  ],
+  jp: [
+    { id: 'all', start: 0 },
+    { id: 'since1990', start: 19900101 },
+    { id: 'since2013', start: 20130101 },
   ],
 }
 

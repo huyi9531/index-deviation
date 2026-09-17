@@ -1,0 +1,11 @@
+{
+  "id": "n225",
+  "symbol": "^N225",
+  "provider": "yahoo",
+  "name": "Nikkei 225",
+  "source": "Yahoo Finance chart API",
+  "fetchedAt": "2026-09-17T02:57:43.829Z",
+  "firstDate": "19650105",
+  "lastDate": "20260917",
+  "tradingDays": 15170
+}

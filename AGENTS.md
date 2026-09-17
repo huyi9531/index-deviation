@@ -2,8 +2,9 @@
 
 ## 项目概述
 
-多指数偏离度监控看板：用对数偏离度 `100 × ln(收盘 ÷ N日均线)` 量化 7 个指数
-（标普500 / 纳斯达克100 / 沪深300 / 中证A500 / 中证500 / 创业板指 / 科创50）
+多指数偏离度监控看板：用对数偏离度 `100 × ln(收盘 ÷ N日均线)` 量化 10 个指数
+（美股：标普500 / 纳斯达克100；A 股：沪深300 / 中证A500 / 中证500 / 创业板指 / 科创50；
+港股：恒生指数 / 恒生科技；日本：日经225）
 的超买超卖位置，并用全量历史统计各阈值下的前瞻胜率与超额。
 
 技术栈：TanStack Start 1.168（React 19 + TanStack Router，文件路由）+ Vite 8 +
@@ -18,7 +19,7 @@ src/
   lib/indices/          ← 全部业务逻辑，唯一的领域层
     registry.ts         指数注册表：纯元数据（id/market/provider/currency/liveSince/action 水位/
                         chartUrl 外部走势页）。不 import 任何数据，客户端可安全引用。加指数从这里开始。
-    types.ts            领域类型 + 载荷类型 + ERAS_US/ERAS_CN/RANGES 常量
+    types.ts            领域类型 + 载荷类型 + ERAS_US/ERAS_CN/ERAS_HK/ERAS_JP/RANGES 常量
     series.ts           纯计算：CSV 解析、均线、对数偏离度（同构，可进客户端）
     stats.ts            纯统计：阈值扫描、baselineRates、复归速度、currentStatus、
                         neighborhoodStats（同类位置统计）
@@ -49,7 +50,7 @@ scripts/
 | `npm run dev` | 开发服务器，<http://localhost:3000> —— **日常 UI 迭代走这里（HMR）** |
 | `npm run build` | `vite build && tsc --noEmit`，部署前必须通过 |
 | `npm run preview` | workerd 里跑构建产物（**端口 4173**，不读 server.port；重建 dist 后必须重启） |
-| `npm run seed [id...]` | 重新抓取并刷新离线快照（`npm run seed` = 全部 7 个） |
+| `npm run seed [id...]` | 重新抓取并刷新离线快照（`npm run seed` = 全部 10 个） |
 | `npm run deploy` | build + `wrangler deploy` |
 | `node .smoke/check.mjs` | 路由内容断言（默认 3000；`BASE=<url>` 可指向 preview/线上） |
 | `node .smoke/overflow.mjs <path> [width]` | 窄屏横向溢出检查（headless Chrome，默认 390px） |
@@ -74,6 +75,10 @@ scripts/
   （`text-up`=红=涨，`text-down`=绿=跌），不要照搬美式配色。
 - **总览表格数值列左对齐**（用户明确偏好），表头与单元格不写 `text-right`；
   胜率/超额差值用 `pp`（百分点）作单位，格式化走 `format.ts`，不要手拼字符串。
+- **多个 Tag 放在一行 flex 里时，容器必须 `flex-wrap` 且 Tag 自带 `whitespace-nowrap`**。
+  总览移动端卡片的头部曾同时出现「名称 + ticker + 市场标签 + 来源标签」四个元素，
+  390px 下需 202px、实际只有 183px；不换行时 flex 会把标签压成两行竖排的圆形，
+  名称也会断行。宁可换行，不可压形。（`Tag` 已内置 `whitespace-nowrap`）
 - 中文文案：标题直接、正文克制；解释性长文一律下沉到 `/method`，
   页面内一格一值，同一数字不得在两处重复展示。
 - 诚实性优先：没有统计优势就显示「无标定水位 / 无超额」，绝不硬凑数字诱导操作。
@@ -98,7 +103,17 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
 
 ## 提交与 PR 规范
 
-本仓库未初始化 git（无提交历史可归纳），暂无提交规范。如启用 git，建议中文祈使句标题。
+`main` 分支，远端 `github.com/huyi9531/index-deviation`。标题格式：
+`[Agent] <type>: <中文祈使句描述>`，type 取 `feat` / `fix` / `chore`。
+**默认不 push，需要时显式说明。**
+
+正文写得详细是既有习惯，不是可选装饰。每个提交交代五件事：问题是什么、改成什么、
+为什么这么改（含**被否掉的方案及原因**）、踩到的坑、以及**本轮实跑过哪些验证命令**。
+第三种尤其重要 —— 多数坑是「看起来能用但不这么写就会坏」，不写下来下一轮会重踩。
+
+提交前排除密钥、凭证、缓存、大产物（`.gitignore` 已覆盖 `dist`、`.dev.vars`、
+`.wrangler`、`worker-configuration.d.ts`、`_stockprobe` 的抓取数据等）。
+工作区有不属于本轮的未提交改动时，先判归属，不要用 `git add -A` 一把扫进来。
 
 ## 架构概览与关键机制（改代码前必读）
 
@@ -113,9 +128,13 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
    纯计算放同构模块，不要为了省事把取数逻辑写进组件或 queries。
 
 3. **缓存键 = `CACHE_VERSION` + 业务键，三处同步递增**。改统计口径或 payload 结构时：
-   `service.ts` 的 `CACHE_VERSION`（现值 8）、`source.server.ts` 里 Cache API 的
-   URL 版本段（daily-v2、payload/v6）。漏掉任何一处，TTL 20 分钟内旧 payload 会
+   `service.ts` 的 `CACHE_VERSION`（现值 9）、`source.server.ts` 里 Cache API 的
+   URL 版本段（daily-v3、payload/v7）。漏掉任何一处，TTL 20 分钟内旧 payload 会
    一直被命中，表现为「修复没生效」。
+
+   注：新增指数本身会自然产生新 key（payload 是按 `indexId + 末日 + source` 分桶的），
+   但 `CACHE_VERSION` 仍要递增 —— 它同时是总览页与详情页共用的缓存前缀，
+   不递增会跟旧载荷挂在同一个版本号下。
 
 4. **行动水位允许 null**。标定规则：最浅阈值满足「60 日胜率 − 基线 ≥ +3pp 且 ≥12 次
    独立信号」，否则为 `null`。`null` 沿类型一路穿透，UI 显示「无标定水位」，
@@ -136,13 +155,35 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
 7. **回溯段**。中证A500/中证500 数据起点早于发布日（`liveSince`），前段是回溯构造。
    判断依据 `meta.backfillDays > 250`；相关文案和统计解释已在 UI 固化，不要删除。
 
-8. **时代分段按市场**。`ERAS_US`（1970/2000/2010）与 `ERAS_CN`（2010/2016/2019）
-   是两套；`activeErasFor(market, firstDate)` 会自动隐藏早于数据起点的段
-   （如纳指100 数据 1985 年起，`since1970` 自动隐藏）。新增分段要同步 `search.ts`。
+   2026-09 新增的**恒生科技**是同类问题里最严重的一个：恒生指数公司官方 factsheet
+   写明 Launch Date 2020-07-27、Base Date 2014-12-31、Base Index 3000，并注明
+   「发布日之前的全部信息均为 back-tested（假设历史表现）」。数据源恰好从基日开始
+   （首行 `20141231,3000.00`），于是 2882 根里前 1370 根（48%）是回溯段。
+   它的水位按**含回溯段的全样本**标定（与中证A500 先例一致），只用真实段会得到
+   更浅的 -6%/-18% —— 两套值不等价，不要混用。
 
-9. **双数据源**。注册表 `provider` 字段派发：美股走 Yahoo `chart` API
-   （标普 `^GSPC`、纳指100 `^NDX`）；A 股走东方财富 `push2his`（`parts[2]` 才是
-   收盘价，限流严重，已有重试 + 间隔，新增 A 股标的直接复用 `fetchEastmoney`）。
+8. **时代分段按市场，四套**。`ERAS_US`（1970/2000/2010）、`ERAS_CN`（2010/2016/2019）、
+   `ERAS_HK`（1997/2014/2018）、`ERAS_JP`（1990/2013）；`activeErasFor(market, firstDate)`
+   会自动隐藏早于数据起点的段（如纳指100 数据 1985 年起，`since1970` 自动隐藏；
+   恒生科技数据 2014-12 起，港股的前两段都隐藏）。
+
+   港股的三个断点不是指数编制规则变化，而是「谁在定价」：1997 回归与亚洲金融危机、
+   2014 沪港通（内地资金成为边际定价者）、2018 上市制度改革（同股不同权 +
+   未盈利生物科技），恒生科技指数本身就是 2018 那次改革的产物。
+
+   `EraId` 目前是全局联合类型（尚无跨市场共用的分段名）。新增分段要同步三处：
+   `types.ts` 的 `ALL_ERA_IDS`、`search.ts` 的 `eraParam`、`service.ts` 的 `ERA`。
+
+9. **双数据源，但按指数派发、不是按市场派发**。注册表 `provider` 字段决定：
+   Yahoo `chart` API 跑美股（标普 `^GSPC`、纳指100 `^NDX`）与**日经225（`^N225`）**；
+   东方财富 `push2his` 跑 A 股 5 个与**港股 2 个**（`parts[2]` 才是收盘价，限流严重，
+   已有重试 + 间隔，新增标的直接复用 `fetchEastmoney`）。
+
+   为什么是这个分工（两边都是被数据可得性逼出来的，别想当然地「一市场一源」）：
+   Yahoo 对恒生科技指数只有 1 根 K 线（`HSTECH.HK` / `^HSTECH` 都没历史），
+   所以港股只能走东财；反过来东财压根没有日经225（`100.N225` / `100.NIKKEI`
+   在三个 push2his host 上均返回空 data），而 Yahoo 的 `^N225` 自 1965 年起有 15170 根。
+   恒生指数两边都有（Yahoo 自 1987、东财自 1990），选东财只为同市场同源便于对照。
 
    ⚠️ **A 股取数据的 host 是列表，不是官网域名**（`EASTMONEY_KLINE_HOSTS`）。
    2026-09-16 实测：从 Cloudflare 边缘打 `push2his.eastmoney.com` 的
@@ -155,6 +196,11 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
    编号集群节点（`1./2.push2his`）是独立源站集群，实测 5 个 A 股指数全量历史都能拿到，
    与官网域名数据一致；官网域名留作最后兜底。`scripts/build-seed.mjs`（本地跑）
    仍用官网域名 —— 住宅 IP 没这个限制，两边不必强行统一。
+
+   另一处不对称：`build-seed.mjs` 的东财兜底源（新浪 K 线）**只对 A 股有效**。
+   `sinaSymbol()` 对 `100.` / `124.` 开头的港股 secid 返回 `null`，
+   调用方直接抛原始错误 —— 不拦的话会拼出 `szHSI` 这种代码，
+   只是拿到空数组 + 白白多等一轮重试，还报出误导性的错误信息。
 
 10. **dev 与 build 互斥**。dev server 运行时跑 `vite build` 会争抢
     `routeTree.gen.ts`（"modified by another process"），且路由增删后 dev 会一直
@@ -170,14 +216,29 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
 
 12. **「触发关注」与 `signal.tone` 是两件事，判定的唯一处只有一处**。
     「是否触发」= 是否跌破该指数**标定水位**，由 `stats.ts` 的 `waterTriggered()` 唯一定义，
-    总览页的 Hero 计数（`row.waterTriggered`）、详情页的「值得关注」标签
-    （`status.waterTriggered`）、`/api/*` 的 `actionable` 三处**必须都调它**。
+    总览页的 Hero 计数、总览页**每一行**的「值得关注」标记（`index.tsx` 的 `WaterMark`）、
+    详情页的「值得关注」标签（`status.waterTriggered`）、`/api/*` 的 `actionable`
+    四处**必须都调它**。
     而 `signal.tone`（cold/cool/neutral/warm/hot）只看**该时期内的相对分位**，
     不含统计优势，只配颜色和文案。两套口径曾各自实现：2026-09 科创50 的 −4%
     浅水令它们公开分歧（API 说 actionable=true、页面「触发关注」显示 0 个）。
     判据：纳指100 两个水位都是 `null`（实测无优势），它**永远不该**被算作触发 ——
     改用分位口径就会把它重新算成「值得关注」，直接达反产品的诚实性立场。
     `.smoke/check.mjs` 里对此加了断言嗂兵。
+
+    ⚠️ 2026-09 踩的坑：这个标记当时**只存在于详情页**，总览的行里没有 ——
+    `waterTriggered` 在总览页仅被用来数了个 Hero 总数。于是用户看到「触发关注 1 个」
+    却找不出是哪一个，而同行渲染的状态标签用的是分位口径（那行还写着
+    「中性区 · 无极端信号」），两个口径公开打架。还有两个同源现象：
+    ① 排序只认 dev200（`to200`），所以已经跌破 dev60 水位的指数会被排到第 8 位，
+    等于把 dev60 触发当成不存在；② 详情页的 SummaryStrip 也只显示 dev200 的距离，
+    于是会出现「到 -16% 水位还需跌 17%」和「值得关注」同时出现在一屏。
+    后两条**尚未修**，改的时候注意别把三者弄成四套判定。
+
+    现在总览行里也渲标记，位置固定在状态标签**之后**（用户明确要求，不要挪到前面）。
+    `.smoke/check.mjs` 有一条交叉断言把「总览页标记数」与「`/api/all` 的 actionable 数」
+    钉成 2 倍关系（桌面表格 + 移动卡片各渲染一次）—— 单看路由断言发现不了
+    「两侧各自都能拿出来、但彼此没关系」这种问题。
 
 13. **数据兜底是四级链，`DailyData.source` 有三态**。顺序：
     内存缓存（实时，≤20min）→ 平台缓存 Cache API（实时，≤20min）→
@@ -194,7 +255,10 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
 
 14. **「走势 ↗」是站外外链，用新标签页打开 —— 不要改成新窗口**。URL 存在 `registry.ts` 的
     `chartUrl`（百度股市通：A 股 `ab-<代码>`、美股 `us-<Baidu代码>`，注意标普是
-    `us-SPX`、纳指100 是 `us-NDX`，与 Yahoo 的 `^GSPC`/`^NDX` 不同），由 `ui.tsx` 的
+    `us-SPX`、纳指100 是 `us-NDX`；港股 `hk-<Baidu代码>`、日股 `jp-<Baidu代码>`，
+    注意恒生科技在百度是 `HZ2083` 而非 `HSTECH`、日经是 `NK225` —— 全与东财/Yahoo 的
+    代码不同；拿不准时查 `https://finance.pae.baidu.com/selfselect/sug?wd=<名字>`，
+    返回里 `type=index` 那条的 `code` + `market` 就是要用的），由 `ui.tsx` 的
     `ChartLink` 统一渲染：`<a target="_blank" rel="noopener noreferrer">`，零 JS，不走客户端路由、不预加载。
 
     曾经按需求做过一版「`onClick` 里 `window.open` + width/height 特征强制开新窗口」
@@ -214,7 +278,8 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
 
 总览、详情、历史证据、API、离线兜底会自动生效，无需新增页面。
 但下面 8 处必须手动接线 —— 前 4 处是数据链路（漏了页面就 500），
-后 4 处是断言与文案（漏了不会报错，但会静默不覆盖 / 数字写错）：
+后 4 处是断言与文案（漏了不会报错，但会静默不覆盖 / 数字写错）。
+**若是新增一个市场，后面还有 4 处。**
 
 **数据链路**
 
@@ -231,7 +296,19 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
 6. `scripts/verify.mjs` 的 `INDICES` 手抄表加条目（它故意不引用 registry，
    靠人抄来保证「独立复算」的独立性 —— 漏了就不会校验新指数）；
 7. `src/routes/index.tsx` 的「N 个主要指数」文案；
-8. `src/routes/method.tsx` 的「覆盖标的」与「数据源」两段（指数清单、数据起点）。
+8. `src/routes/method.tsx` 的「覆盖标的」与「数据源」两段（指数清单、数据起点）；
+   另：`.smoke/calibrate.mjs` 的 `LIST` 也有一份手抄清单，漏了不会报错、
+   只是那个工具静默地少覆盖几个标的。
+
+**新增市场另需 4 处**（漏了时代分段会全部落到美股口径上，不会报错）：
+
+1. `types.ts`：加 `ERAS_XX` 常量、挂进 `ERAS_BY_MARKET`、把 `EraId` 与 `ALL_ERA_IDS` 补齐；
+2. `search.ts` 的 `eraParam` 与 `service.ts` 的 `ERA` 两处 `z.enum` 同步；
+3. `registry.ts` 的 `MARKET_LABEL` 与 `currencySymbol` 的 `CURRENCY_SYMBOL` 表
+    （注意 `¥` 同时属于人民币和日元，新币种要想清楚怎么消歧 —— 日元的 `JP¥` 就是这么来的）；
+4. `app.css` 加 `--color-market-<id>-{bg,fg,line}` 三件套、`ui.tsx` 的 `Tag` tone
+    联合类型与 map、以及 `index.tsx` 传 tone 的地方（`Tag` 的 market tone 与 `MarketId`
+    一一对应，页面直接传 `row.market` / `def.market`，不要再写三目运算符）。
 
 最后 `node .smoke/calibrate.mjs` 标定水位，有达标档位才填 `action`。
 
@@ -241,3 +318,17 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
 `calibrate.mjs` 顶部的警告；这个不统一已在 `.agents/plans/` 里立项待修。比如
 科创50（2026-09 新增）：按 registry 口径得 dev60 -4% / dev200 -16%，
 而 `calibrate.mjs` 会给出 -9% / -14% —— 后者**没有**被采用。
+
+⚠️⚠️ **但更要紧的是：现有口径完全不做样本外检验，而且 +3pp 太松。**
+2026-09 加港股与日经时顺手做了一次「前半段标定 → 后半段验证」，两个结果都很难看：
+
+- **阈值没有区分度**：拿 26 个候选指数（A 股宽基/红利/行业 + 港股 + 美股 + 欧日印巴澳）
+  按原网格一起扫，**22 个（85%）都能标出 dev60 水位**。一个放过 85% 的筛子不叫筛子。
+- **经不起分段**：已发布的 10 个非 null 水位里只有 3 个三段都成立、2 个在后半段直接翻负
+  （标普500 dev200 从 +3.2pp 掉到 -0.5pp，科创50 dev200 从 +23.2pp 变成 -14.2pp）；
+  本轮新增的三个里恒生指数两个口径都站得住，而恒生科技与日经225 的**前半段根本标不出水位**，
+  它们的水位完全由近半段样本撑起。
+
+所以统一规则时应该一起做三件事：①把 `calibrate.mjs` 改成超额口径；②把阈值提到有区分度的
+水平；③**把样本外检验变成强制门槛**（前半段选档后，后半段必须仍 ≥ 阈值，否则给 `null`）。
+③ 会改变已发布的 7 个老水位，属于用户可见行为变化，要单独一轮做、单独交代。

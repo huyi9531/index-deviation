@@ -13,6 +13,13 @@ export type EraId =
   // A 股口径
   | 'since2016'
   | 'since2019'
+  // 港股口径
+  | 'since1997'
+  | 'since2014'
+  | 'since2018'
+  // 日股口径
+  | 'since1990'
+  | 'since2013'
 
 export interface Era {
   id: EraId
@@ -27,7 +34,12 @@ export interface Era {
  * 而不是某个统一的时间轴：
  *   · 美股：战后重建 / 布雷顿森林体系解体 / 互联网泡沫 / QE 常态化
  *   · A 股：四万亿与创业板开板 / 供给侧改革与沪深港通 / 科创板与注册制
+ *   · 港股：回归与亚洲金融危机 / 沪港通（内地资金拿到定价权）/ 上市制度改革
+ *   · 日股：泡沫破裂 / 安倍经济学与 QQE
  * 拿「1970 年后」这种分段去套沪深300（2005 年才有数据）是没有意义的。
+ *
+ * 目前没有「一个分段被两个市场共用」的情况，所以 EraId 直接做成全局联合类型；
+ * 若将来真有共用分段（例如日股与港股共用「亚洲金融危机」），再改为按市场分命名空间。
  */
 export const ERAS_US: readonly Era[] = [
   {
@@ -83,9 +95,73 @@ export const ERAS_CN: readonly Era[] = [
   },
 ] as const
 
+/**
+ * 港股。数据源自 1990-05 起（恒生科技自 2014-12 起，会自动隐藏早于它的分段）。
+ *
+ * 分段依据是「谁在定价」而不是指数本身的编制规则：
+ *   1997 之前由本地与英资资金主导；2014 沪港通之后内地资金持续成为边际买家；
+ *   2018 上市制度改革后，新经济公司（同股不同权 + 未盈利生物科技）才有资格上港股，
+ *   指数成分与波动结构随之改变 —— 恒生科技指数本身就是这次改革的产物。
+ */
+export const ERAS_HK: readonly Era[] = [
+  {
+    id: 'all',
+    label: '全部历史',
+    start: 0,
+    note: '该指数全部可得历史（港股数据自 1990 年 5 月起）',
+  },
+  {
+    id: 'since1997',
+    label: '1997 年后',
+    start: 19970101,
+    note: '回归与亚洲金融危机之后，本地资金与中资资金的主导权开始交替',
+  },
+  {
+    id: 'since2014',
+    label: '2014 年后',
+    start: 20140101,
+    note: '沪港通开通，内地资金成为港股的边际定价者之一',
+  },
+  {
+    id: 'since2018',
+    label: '2018 年后',
+    start: 20180101,
+    note: '上市制度改革（同股不同权 + 未盈利生物科技），新经济公司成为指数主体',
+  },
+] as const
+
+/**
+ * 日股。数据源自 1965-01 起，所以 1990 与 2013 两个分段都能用。
+ *
+ * 日股只需要两个断点：泡沫破裂是它最根本的一次结构变化（估值体系被重建），
+ * 2013 的 QQE 则让央行成为最大买家、把「均值回归」重新拉了回来。
+ */
+export const ERAS_JP: readonly Era[] = [
+  {
+    id: 'all',
+    label: '全部历史',
+    start: 0,
+    note: '该指数全部可得历史，含战后高增长、泡沫与失去的三十年',
+  },
+  {
+    id: 'since1990',
+    label: '1990 年后',
+    start: 19900101,
+    note: '泡沫破裂之后，估值体系被重建的三十年',
+  },
+  {
+    id: 'since2013',
+    label: '2013 年后',
+    start: 20130101,
+    note: '安倍经济学与 QQE（央行持续买入风险资产）之后的阶段',
+  },
+] as const
+
 export const ERAS_BY_MARKET: Record<MarketId, readonly Era[]> = {
   us: ERAS_US,
   cn: ERAS_CN,
+  hk: ERAS_HK,
+  jp: ERAS_JP,
 }
 
 export function erasForMarket(market: MarketId): readonly Era[] {
@@ -100,6 +176,11 @@ export const ALL_ERA_IDS = [
   'since2010',
   'since2016',
   'since2019',
+  'since1997',
+  'since2014',
+  'since2018',
+  'since1990',
+  'since2013',
 ] as const
 
 /**
@@ -242,7 +323,7 @@ export interface DataMeta {
   provider: string
   /** 所属市场。决定历史分段口径与货币符号 */
   market: MarketId
-  currency: 'USD' | 'CNY'
+  currency: 'USD' | 'CNY' | 'HKD' | 'JPY'
   fetchedAt: string
   /** 统计序列起点（已剔除 200 日均线预热期） */
   firstDate: number
@@ -382,7 +463,7 @@ export interface OverviewRow {
   ticker: string
   symbol: string
   market: MarketId
-  currency: 'USD' | 'CNY'
+  currency: 'USD' | 'CNY' | 'HKD' | 'JPY'
   date: number
   close: number
   dev60: number

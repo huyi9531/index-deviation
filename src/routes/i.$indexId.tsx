@@ -5,9 +5,9 @@ import { HistogramChart } from '~/components/HistogramChart'
 import { SummaryStrip } from '~/components/Blocks'
 import { DenseThresholdTable, EraSummaryTable } from '~/components/ThresholdTable'
 import { TimeSeriesChart } from '~/components/TimeSeriesChart'
-import { Card, ChartLink, SectionHead, Segmented } from '~/components/ui'
+import { Card, ChartLink, SectionHead, Segmented, Tag } from '~/components/ui'
 import { fmtDate, fmtPoint } from '~/lib/format'
-import { isIndexId, indexByIdOrDefault } from '~/lib/indices/registry'
+import { MARKET_LABEL, isIndexId, indexByIdOrDefault } from '~/lib/indices/registry'
 import { activeErasFor } from '~/lib/indices/queries'
 import {
   DEFAULT_ERA,
@@ -92,6 +92,11 @@ function DetailPage() {
             <span className="num text-[12px] font-medium text-faint">
               {def.ticker} · {def.enName}
             </span>
+            {/* 市场标签：四个市场的「时代」分段各用一套（美股 1970/2000/2010、
+                A 股 2016/2019、港股 1997/2014/2018、日股 1990/2013），
+                而分段按钮本身不带市场信息 —— 不标市场的话，右上的「2018 年后」
+                到底是港股口径还是 A 股口径是读不出来的。 */}
+            <Tag tone={def.market}>{MARKET_LABEL[def.market]}</Tag>
           </h1>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5">

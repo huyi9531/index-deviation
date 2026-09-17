@@ -2,8 +2,15 @@
  * 生成离线兜底数据快照：各指数日线收盘价。
  *
  * 数据来源按指数注册表里的 provider 分派：
- *   yahoo     —— 美股指数（^GSPC / ^NDX），统一从 1948 年拉起
- *   eastmoney —— A 股指数（东方财富 push2his），全历史可得
+ *   yahoo     —— 美股指数（^GSPC / ^NDX）与日经225（^N225），统一从 1948 年拉起
+ *   eastmoney —— A 股指数（东方财富 push2his）与港股指数（恒生指数 / 恒生科技），
+ *                全历史可得
+ *
+ * 为什么日经225 走 Yahoo 而不是东财：东财没有日经（100.N225 与 100.NIKKEI
+ * 在三个 push2his host 上均返回空 data），且 Yahoo 的 ^N225 自 1965-10 起有 15795 根，
+ * 比东财能给的长得多。
+ * 为什么港股必须走东财：Yahoo 对恒生科技指数只有 1 根 K 线（HSTECH.HK /
+ * ^HSTECH 均无历史），拿不到任何统计样本。
  *
  * 之所以 A 股不能用 Yahoo：它对 A 股指数基本没有历史数据
  * （000300.SS 仅 2021 年起、399006.SZ 无数据、000688.SS 只有 1 根 K 线）。
@@ -97,6 +104,41 @@ const TARGETS = [
     name: '科创50',
     probes: {},
   },
+  // 港股。锚点取自公开历史记录，写入前已逐一核对通过。
+  // 注意恒生指数 2007-10-30 的盘中最高是 31958.41，但**收盘**是 31638.22 ——
+  // 与 A 股同理，锚点必须是收盘价，把盘中极值当锚点会误判成取数错误。
+  {
+    id: 'hsi',
+    provider: 'eastmoney',
+    symbol: '100.HSI',
+    name: '恒生指数',
+    probes: {
+      19971023: 10426.3,
+      20081027: 11015.84,
+      20180126: 33154.12,
+    },
+  },
+  {
+    id: 'hstech',
+    provider: 'eastmoney',
+    symbol: '124.HSTECH',
+    name: '恒生科技指数',
+    // 官方发布日 2020-07-27；数据源按基日 2014-12-31（基点 3000）回溯，
+    // 前 1370 根是官方 factsheet 明确标注的 back-tested 假设历史。
+    // 不放锚点：这段回溯路径不适合当取数正确性的独立参照。
+    probes: {},
+  },
+  {
+    id: 'n225',
+    provider: 'yahoo',
+    symbol: '^N225',
+    name: 'Nikkei 225',
+    probes: {
+      19891229: 38915.87,
+      20081027: 7162.9,
+      20240222: 39098.68,
+    },
+  },
 ]
 
 const START = Math.floor(Date.UTC(1948, 0, 1) / 1000) // 美股：留出 200 日均线预热期
@@ -187,9 +229,16 @@ async function fetchEastmoney(secid) {
 /** 新浪单次上限，触顶意味着历史被截断，必须拒绝写入 */
 const SINA_MAX_BARS = 4000
 
-/** 东财 secid → 新浪 symbol：1.=沪、0.=深 */
+/**
+ * 东财 secid → 新浪 symbol：1.=沪、0.=深。
+ *
+ * 只对 A 股成立 —— 港股用的是 100./124. 前缀，拼出来是 `szHSI` 这种无效代码，
+ * 新浪会返回空数组，白等一轮重试还报出误导性的错误。所以返回 null 表示「没有兜底源」，
+ * 由 fetchWithRetry 直接抛出原始错误。日经走 Yahoo，本来就不会落到这里。
+ */
 function sinaSymbol(secid) {
   const [mkt, code] = secid.split('.')
+  if (mkt !== '1' && mkt !== '0') return null
   return `${mkt === '1' ? 'sh' : 'sz'}${code}`
 }
 
@@ -256,6 +305,8 @@ async function fetchWithRetry(target, attempts = 6) {
     }
   }
   if (target.provider === 'eastmoney') {
+    // 港股 secid（100./124. 前缀）没有新浪兜底源，见 sinaSymbol 的说明
+    if (!sinaSymbol(target.symbol)) throw lastErr
     console.warn(`[seed] ${target.id} 东财 ${attempts} 次均失败（${lastErr.message}），降级新浪兜底源`)
     return {
       rows: await fetchSina(target.symbol),

@@ -1,0 +1,11 @@
+{
+  "id": "hsi",
+  "symbol": "100.HSI",
+  "provider": "eastmoney",
+  "name": "恒生指数",
+  "source": "东方财富 push2his（klt=101 日线，fqt=1 前复权）",
+  "fetchedAt": "2026-09-17T02:57:42.129Z",
+  "firstDate": "19900514",
+  "lastDate": "20260917",
+  "tradingDays": 8968
+}

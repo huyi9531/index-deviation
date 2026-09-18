@@ -53,7 +53,10 @@ interface Bundle {
 //     CurrentStatus/OverviewRow 改拎 waterTriggered（阈值口径唯一判定）
 // v8: 兜底链加 KV 层，DataMeta.source 多出 'cached' 状态
 // v9: 新增港股（恒生指数 / 恒生科技）与日经225，指数集合由 7 个变 10 个
-const CACHE_VERSION = 9
+// v10: 行动水位补了三格（nasdaq dev60 -10、hs300 / a500 dev60 -3）—— payload 结构没变，
+//      但 status.toThreshold / waterTriggered / eraSummary 的**值**变了，不递增会在这 20 分钟
+//      的 TTL 里继续返回旧的 null，看起来像「改了没生效」
+const CACHE_VERSION = 10
 /** 载荷缓存时长（秒）。日线一天更新一次，20 分钟足够 */
 const TTL = 60 * 20
 

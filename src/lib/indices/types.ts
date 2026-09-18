@@ -475,7 +475,11 @@ export interface OverviewRow {
    */
   analogExcess: number | null
   analogSamples: number
-  /** 距离「行动水位」还需下跌多少（%，价格口径）。已进入水位时为 0，无水位时为 null */
+  /**
+   * 距离该口径的「行动水位」还需下跌多少（%，价格口径）。已进入水位时为 0，
+   * 该口径没有标定水位时为 null。总览页的排序用这一对值算「离动手还有多远」。
+   */
+  to60: number | null
   to200: number | null
   /**
    * 是否跌破任一标定水位。与 /api 的 `actionable` 同义、同源（stats.ts 的

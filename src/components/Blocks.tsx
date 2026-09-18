@@ -82,16 +82,23 @@ export function SummaryStrip({
   baseline: BaselineStat[]
 }) {
   const { signal } = status
-  const level = actionLevel.dev200
+  // 水位格优先显示 200 日口径（长期中枢、信号更重）；该口径没有标定水位时才回落到
+  // 60 日口径。不能写死 dev200：纳斯达克100 的 dev200 至今为空、dev60 有一条 -10%，
+  // 写死会让它在格子里显示「无水位」，而它其实已经有一条能触发的 60 日水位 —— 一屏
+  // 之内自相矛盾（与 2026-09 科创50 那次页面/接口口径分歧同源）。
+  const use60 = actionLevel.dev200 === null && actionLevel.dev60 !== null
+  const level = use60 ? actionLevel.dev60 : actionLevel.dev200
+  const move = use60 ? status.toThreshold60 : status.toThreshold200
+  const sideLabel = use60 ? '60' : '200'
   const world = baseline.find((b) => b.days === 20)?.winRate ?? Number.NaN
   const noLevel = level === null
-  const inLevel = status.toThreshold200 === 0
+  const inLevel = move === 0
 
   const moveText = noLevel
     ? '无水位'
     : inLevel
       ? '已进入'
-      : `还需跌 ${Math.abs(status.toThreshold200 ?? 0).toFixed(1)}%`
+      : `还需跌 ${Math.abs(move ?? 0).toFixed(1)}%`
 
   // 数字保持中性色：红色的话语权只属于信号横幅（警示色常态化 = 没有警示）
 
@@ -148,21 +155,19 @@ export function SummaryStrip({
           sub={`该时期分位 ${(status.pct200 * 100).toFixed(1)}%`}
         />
         <Metric
-          label={noLevel ? '200 日行动水位' : `到 ${level}% 水位`}
+          label={noLevel ? '行动水位' : `到 ${level}% 水位`}
           value={moveText}
           tone={noLevel ? 'neutral' : inLevel ? 'down' : 'neutral'}
           size="md"
           hint={
             noLevel
-              ? '该指数 200 日偏离度跌破任何一档时，60 日胜率都不优于「不设条件」的常态值，因此不给水位。'
-              : `行动水位是实测标定值：该指数 200 日偏离度跌破 ${level}% 之后，60 日胜率相对「常态」有明显超额。`
+              ? '该指数两个口径的偏离度跌破任何一档时，60 日胜率都不优于「不设条件」的常态值，因此不给水位。'
+              : `行动水位是实测标定值：该指数 ${sideLabel} 日偏离度跌破 ${level}% 之后，60 日胜率相对「常态」有明显超额。`
           }
           sub={
             noLevel
               ? '历史各档位均无超额'
-              : inLevel
-                ? '已进入水位区间'
-                : '按价格口径折算，假设均线短期不动'
+              : `${sideLabel} 日口径${use60 ? '（200 日口径未标定）' : ''} · ${inLevel ? '已进入水位区间' : '按价格折算，假设均线短期不动'}`
           }
         />
         <Metric

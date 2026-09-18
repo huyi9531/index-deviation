@@ -68,8 +68,16 @@ const checks = [
   ],
   [
     '/i/nasdaq',
-    ['无水位', '历史各档位均无超额', '常态（不设条件）', '没有标定出可用的行动水位'],
-    ['到 -8% 水位', '到 -10% 水位'],
+    // 2026-09 变化：NDX 的 dev60 补了 -10%（按「当前时代」复核），dev200 仍为空。
+    // 所以详情页现在应当同时出现「到 -10% 水位」（SummaryStrip 回落到 60 日口径）
+    // 与 200 日那份的「没有标定出可用的行动水位」说明。
+    [
+      '到 -10% 水位',
+      '60 日口径（200 日口径未标定）',
+      '没有标定出可用的行动水位',
+      '常态（不设条件）',
+    ],
+    ['到 -8% 水位', '无水位', '历史各档位均无超额'],
     200,
   ],
   [
@@ -211,11 +219,17 @@ for (const path of apiPaths) {
     // 回归护栏：数据来源只允许这三态，且每一态都必须在 UI 上有对应展示。
     // 若有人加了新来源（如又加一层兜底）却没同步 UI 与文档，这一条就会响。
     if (!['live', 'cached', 'snapshot'].includes(json.meta?.source)) bad++
-    // 回归护栏：纳斯达克100 两个口径都无标定水位（实测无优势，registry 写明是
-    // 「结论」不是「缺失」），因此它永远不该被算作 actionable。若有人把判定改回
-    // tone / 分位口径，这一条就会响 —— 2026-09 科创50 的浅水位曾让页面与 API
-    // 用两套判定而公开分歧，这里就是那个 bug 的哨兵。
-    if (path === '/api/nasdaq' && json.actionable !== false) bad++
+    // 回归护栏：actionable 必须等于 flags 里那两个阈值的比较本身（状态无关的写法 ——
+    // 不依赖今天涨跌，换市况也成立）。若有人把判定改回 tone / 分位口径，这里立刻响：
+    // 2026-09 科创50 的浅水位曾让页面与 API 用两套判定而公开分歧，这就是那个 bug 的哨兵。
+    if (json.actionable !== json.flags.some((f) => f.triggered)) bad++
+    // 回归护栏：纳斯达克100 不再是「两个口径都无水位」。dev60 的 -10% 是 2026-09
+    // 按「当前时代」窗口复核补上的（全样本 20 个档位全负，它曾是唯一一格都不给的指数），
+    // dev200 仍为空。这一条钉住这两个值，防止有人把 dev60 那格又改回 null。
+    if (path === '/api/nasdaq') {
+      const lv = (k) => json.flags.find((f) => f.key === k)?.threshold
+      if (lv('dev60') !== -10 || lv('dev200') !== null) bad++
+    }
     const t = json.flags.map((f) => (f.threshold === null ? 'null' : f.threshold)).join('/')
     summary =
       (json.name ?? '').padEnd(6) +
@@ -263,6 +277,98 @@ for (const path of apiPaths) {
       '  ' +
       '触发标记一致性'.padEnd(14) +
       ` 总览页「值得关注」${marks} 处，接口 actionable ${expect} 个（应互为 2 倍）`,
+  )
+}
+
+/**
+ * 交叉断言（排序）：总览页的行顺序必须等于「同温度分组内按「离水位的距离」升序」。
+ *
+ * 这里是**独立第二实现**：从 `/api/all` 的 dev60/dev200 与 each flag 的 threshold
+ * 自己算一遍价格距离（e = e^(Δ/100) − 1），不引用页面任何代码。
+ *
+ * 为什么值得钉：2026-09 排序只认 `to200`，于是**已触发**的指数被按 dev200 的距离
+ * 排到了第 2 / 3 / 8 位（科创50 距 dev200 尚有 18.3%），而它们在页面上看不出异常 ——
+ * 单看渲染断言也发现不了。
+ *
+ * 温度分组用页面上五条状态标题识别（顺序即 cold→hot），**不依赖 class 名** ——
+ * 改版式不该让断言失效；指数名取行内最早出现的那个。
+ */
+const TONE_TITLES = [
+  '极值区 · 历史级位置',
+  '偏低区 · 可分批',
+  '中性区 · 无极端信号',
+  '偏热区 · 不宜追高',
+  '极值区 · 过热警戒',
+]
+const INDEX_NAMES = [
+  '标普500',
+  '纳斯达克100',
+  '沪深300',
+  '中证A500',
+  '中证500',
+  '创业板指',
+  '科创50',
+  '恒生指数',
+  '恒生科技',
+  '日经225',
+]
+{
+  const allJson = await (await fetch(`${B}/api/all`)).json()
+  const html = await (await fetch(`${B}/`)).text()
+
+  // 桌面表格的每一行：<tr class="group …">
+  const pageRows = html
+    .split('<tr class="group')
+    .slice(1)
+    .map((chunk) => {
+      const name = INDEX_NAMES.map((n) => [chunk.indexOf(n), n])
+        .filter(([at]) => at >= 0)
+        .sort((a, b) => a[0] - b[0])[0]?.[1]
+      return { name, tone: TONE_TITLES.findIndex((t) => chunk.includes(t)) }
+    })
+    .filter((r) => r.name && r.tone >= 0)
+
+  const priceMove = (cur, level) => Math.abs((Math.exp((level - cur) / 100) - 1) * 100)
+  const distance = (s) => {
+    if (s.actionable) return 0
+    const gaps = s.flags
+      .filter((f) => f.threshold !== null)
+      .map((f) => priceMove(f.key === 'dev60' ? s.dev60 : s.dev200, f.threshold))
+    return gaps.length ? Math.min(...gaps) : Number.POSITIVE_INFINITY
+  }
+  const byName = new Map(allJson.indices.map((s) => [s.name, s]))
+
+  const problems = []
+  if (pageRows.length !== 10) problems.push(`只提取到 ${pageRows.length} 行`)
+
+  const groups = new Map()
+  for (const r of pageRows) {
+    if (!groups.has(r.tone)) groups.set(r.tone, [])
+    groups.get(r.tone).push(r.name)
+  }
+  const toneOrder = [...groups.keys()]
+  if (!toneOrder.every((t, i) => i === 0 || toneOrder[i - 1] <= t))
+    problems.push(`温度分组未按 cold→hot 排：${toneOrder.join('>')}`)
+
+  for (const [, names] of [...groups].sort((a, b) => a[0] - b[0])) {
+    const ds = names.map((n) => distance(byName.get(n)))
+    if (!ds.every((v, i) => i === 0 || ds[i - 1] <= v)) {
+      problems.push(
+        '组内未按距离升序：' +
+          names.map((n, i) => `${n}=${Number.isFinite(ds[i]) ? ds[i].toFixed(1) + '%' : '∞'}`).join(' '),
+      )
+    }
+  }
+
+  const ok = problems.length === 0
+  if (!ok) bad++
+  console.log(
+    (ok ? 'OK  ' : 'FAIL') +
+      '  ' +
+      '排序 = 离水位距离'.padEnd(14) +
+      (ok
+        ? ` ${pageRows.length} 行、${groups.size} 个温度分组均为「已触发 → 距离升序」`
+        : ' ' + problems.join('；')),
   )
 }
 

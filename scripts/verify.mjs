@@ -23,9 +23,9 @@ const BASE = (argv.find((a) => a.startsWith('--base=')) ?? '--base=http://localh
 /** 与 src/lib/indices/registry.ts 保持一致的元数据（故意手抄一份，避免「引用被测代码」） */
 const INDICES = [
   { id: 'sp500', market: 'us', action: { dev60: -7, dev200: -10 } },
-  { id: 'nasdaq', market: 'us', action: { dev60: null, dev200: null } },
-  { id: 'hs300', market: 'cn', action: { dev60: null, dev200: -12 } },
-  { id: 'a500', market: 'cn', action: { dev60: null, dev200: -12 } },
+  { id: 'nasdaq', market: 'us', action: { dev60: -10, dev200: null } },
+  { id: 'hs300', market: 'cn', action: { dev60: -3, dev200: -12 } },
+  { id: 'a500', market: 'cn', action: { dev60: -3, dev200: -12 } },
   { id: 'csi500', market: 'cn', action: { dev60: -8, dev200: -20 } },
   { id: 'chinext', market: 'cn', action: { dev60: -8, dev200: -14 } },
   { id: 'star50', market: 'cn', action: { dev60: -4, dev200: -16 } },

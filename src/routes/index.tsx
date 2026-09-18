@@ -49,6 +49,27 @@ const TONE_PILL: Record<SignalTone, string> = {
 const TONE_RANK: Record<SignalTone, number> = { cold: 0, cool: 1, neutral: 2, warm: 3, hot: 4 }
 
 /**
+ * 同温内的排序键：离最近一条行动水位还有多远（越小越靠前）。
+ *
+ *   已触发任一水位        → 0（它已经在机会区里，没有「还需跌」可言）
+ *   否则取两条水位里近的那条 → min(|to60|, |to200|)，单位是价格变动 %
+ *   两条水位都没标定      → Infinity（垫底）
+ *
+ * 两个坑：
+ *   ① 原来只认 to200，于是已经跌破 **dev60** 水位的指数会被按 dev200 的距离排到
+ *      第 8 位 —— 等于把那次触发当成不存在。这里必须两个口径一起看。
+ *   ② 两个口径都无水位才是 Infinity。以前是「to200 === null 就垫底」，而纳斯达克100
+ *      的 dev200 恰好没有水位（dev60 有），于是它无论跌到哪都排最后。
+ * 注意判定用的是**阈值口径**的 waterTriggered，不是 signal.tone 的分位口径。
+ */
+function distanceToAction(row: OverviewRow): number {
+  if (row.waterTriggered) return 0
+  const gaps = [row.to60, row.to200].filter((v): v is number => v !== null)
+  if (gaps.length === 0) return Number.POSITIVE_INFINITY
+  return Math.min(...gaps.map((g) => Math.abs(g)))
+}
+
+/**
  * 非实时数据源的可视标记。live 不标；cached = 实时源不可达、用 KV 里上次成功抓取
  * 的数据（较新）；snapshot = 连 KV 也没有，退到构建时内置的离线快照（只在重新部署时
  * 更新）。两种都要显式标出 —— 兜底数据冒充实时是诚实性问题。
@@ -65,15 +86,12 @@ function OverviewPage() {
   // 排序 = 「离值得动手的距离」：
   //   ① 按信号温度冷 → 热：cold（历史级超卖）最前，hot（过热警戒）垫底 ——
   //      过热是逃顶侧的警示，不是买入机会，靠红色 pill 提示而不浮顶；
-  //   ② 同温内按到 200 日行动水位的距离升序（to200 是负的「还需跌 %」，取绝对值），
-  //      无水位（to200 = null）的垫底。
+  //   ② 同温内按「离最近一条行动水位的距离」升序，见 distanceToAction()。
   // Array.prototype.sort 是稳定的，同键内保持注册表原序。
   const rows = [...data.rows].sort((a, b) => {
     const byTone = TONE_RANK[a.signal.tone] - TONE_RANK[b.signal.tone]
     if (byTone !== 0) return byTone
-    const ta = a.to200 === null ? Number.POSITIVE_INFINITY : Math.abs(a.to200)
-    const tb = b.to200 === null ? Number.POSITIVE_INFINITY : Math.abs(b.to200)
-    return ta - tb
+    return distanceToAction(a) - distanceToAction(b)
   })
   // 「触发关注」= 跌破该指数**标定水位**的个数，与 /api 的 actionable 同源
   // （曾经这里用的是 signal.tone 口径，与 API 同名不同义，2026-09 科创50 的

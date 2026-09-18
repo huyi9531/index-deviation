@@ -5,9 +5,10 @@
  * （几乎每年都触发），对沪深300 又偏深。用同一组数字是错的。
  *
  * ⚠️⚠️ 本脚本的选档规则与 registry.ts 已发布的水位**不是同一个口径**：
- *   本脚本：20 日**绝对**胜率 ≥ [0.60, 0.58, 0.56]，取最浅档。
- *   registry：60 日胜率相对常态基线的**超额** ≥ +3pp，取最浅档（见 AGENTS.md）。
- *   两套规则给出的值不一样（实测：中证A500 dev60 本脚本给 -5、registry 写 null；
+ *   本脚本：20 日**绝对**胜率 ≥ [0.60, 0.58, 0.56]，取最浅档，基线固定为全样本。
+ *   registry：60 日胜率相对常态基线的**超额** ≥ +3pp，取最浅档；
+ *     全样本无档位达标时，再用「当前时代」窗口复核一遍（见 AGENTS.md §4）。
+ *   两套规则给出的值不一样（实测：中证A500 dev60 本脚本给 -5、registry 写 -3（时代口径）；
  *   创业板指 dev60 本脚本给 -10、registry 写 -8）。
  *   **本脚本的 JSON 输出不得直接抄进 registry.ts。**
  *   这个不统一已在 .agents/plans/2026-09-16T03-06-14-995Z-plan.md 第 8 条立项，
@@ -196,7 +197,7 @@ for (const [id, cn] of LIST) {
   console.log(`  ${cn.padEnd(12)} ${f(a).padEnd(34)} ${f(b)}`)
 }
 console.log('\n⚠️  注意：以上为「20 日绝对胜率」口径，与 registry.ts 的「60 日超额≥+3pp」口径不同，')
-console.log('    输出不得直接抄进 registry.ts。详见本文件顶部注释。')
+console.log('    且它不包含 registry 的第二道「当前时代窗口复核」。详见本文件顶部注释。')
 console.log('\nJSON:')
 console.log(
   JSON.stringify(

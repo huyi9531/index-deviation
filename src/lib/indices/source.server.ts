@@ -506,12 +506,14 @@ export async function cachedJson<T>(
   if (memo && Date.now() - memo.at < ttlSeconds * 1000) return memo.value as T
 
   const cache = cfCache()
+  // v8: 行动水位补了三格（nasdaq dev60 / hs300 dev60 / a500 dev60），
+  //     status 与 eraSummary 里的水位相关字段值变了
   // v7: 指数集合从 7 个变 10 个（新增恒生指数 / 恒生科技 / 日经225），
   //     /api/all 的 count 与总览行数都变了
   // v6: 兜底链加 KV 层，DataMeta.source 多出 'cached' 状态
   // v5: payload 结构变更（SignalLevel 去 actionable、改拎 waterTriggered）
   // v4: 同行位置改展示超额（excess20）而非裸胜率
-  const url = `https://deviation-monitor.internal/payload/v7/${key}`
+  const url = `https://deviation-monitor.internal/payload/v8/${key}`
   if (cache) {
     try {
       const hit = await cache.match(url)

@@ -8,7 +8,13 @@ import {
   fmtPoint,
   fmtProb,
 } from '~/lib/format'
-import { currencySymbol } from '~/lib/indices/registry'
+import {
+  EVIDENCE_LABEL,
+  TRIGGER_LABEL,
+  currencySymbol,
+  evidenceOf,
+  type EvidenceGrade,
+} from '~/lib/indices/registry'
 import { bindingLevel } from '~/lib/indices/stats'
 import type {
   AnalogAnswer,
@@ -103,6 +109,12 @@ export function SummaryStrip({
   const world = baseline.find((b) => b.days === 20)?.winRate ?? Number.NaN
   const noLevel = bind === null
   const inLevel = bind !== null && bind.move === 0
+  // 证据级别取 binding 那一侧 —— 与总览的触发标记、排序同源（都走 bindingLevel）
+  const grade: EvidenceGrade = bind === null ? 'none' : evidenceOf(meta.indexId, bind.side)
+  const triggerLabel = TRIGGER_LABEL[grade]
+  // ⚠️ 「值得关注」只在 robust / eraOnly 出现；fragile 必须写「证据薄弱」
+  // （20 格里 12 格样本外已翻负，不能拿暗示行动的措辞蒙过去）
+  const triggerWeak = grade === 'fragile'
   // 置信区间既用于着色，也直接写给用户看 —— 不确定性本来就该可见，不该只藏在颜色里
   const ciText = analog.excessCi20
     ? `当前 95% 置信区间 ${fmtExcess(analog.excessCi20[0])} ~ ${fmtExcess(analog.excessCi20[1])}。`
@@ -129,7 +141,9 @@ export function SummaryStrip({
           <span className={`text-[15px] font-semibold ${TONE_TEXT[signal.tone]}`}>
             {signal.title}
           </span>
-          {status.waterTriggered ? <Tag tone="steel">值得关注</Tag> : null}
+          {status.waterTriggered && triggerLabel ? (
+            <Tag tone={triggerWeak ? 'warn' : 'steel'}>{triggerLabel}</Tag>
+          ) : null}
           {meta.backfillDays > 250 ? (
             <Tag tone="warn">含回溯段</Tag>
           ) : null}
@@ -176,12 +190,12 @@ export function SummaryStrip({
           hint={
             noLevel
               ? '该指数两个口径的偏离度跌破任何一档时，60 日胜率都不优于「不设条件」的常态值，因此不给水位。'
-              : `行动水位是实测标定值：该指数 ${sideLabel} 日偏离度跌破 ${level}% 之后，60 日胜率相对「常态」有明显超额。`
+              : `行动水位是实测标定值：该指数 ${sideLabel} 日偏离度跌破 ${level}% 之后，60 日胜率相对「常态」有明显超额。证据级别：${EVIDENCE_LABEL[grade]}。`
           }
           sub={
             noLevel
               ? '历史各档位均无超额'
-              : `${sideLabel} 日口径${bind?.side === 'dev60' && actionLevel.dev200 === null ? '（200 日口径未标定）' : ''} · ${inLevel ? '已进入水位区间' : '按价格折算，假设均线短期不动'}`
+              : `${sideLabel} 日口径${bind?.side === 'dev60' && actionLevel.dev200 === null ? '（200 日口径未标定）' : ''} · ${EVIDENCE_LABEL[grade]} · ${inLevel ? '已进入水位区间' : '按价格折算，假设均线短期不动'}`
           }
         />
         <Metric

@@ -2,7 +2,8 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { Sparkline } from '~/components/Sparkline'
 import { Card, ChartLink, Tag } from '~/components/ui'
 import { fmtDate, fmtExcess, fmtPct, fmtPoint, excessToneOf, type ExcessTone } from '~/lib/format'
-import { MARKET_LABEL, currencySymbol } from '~/lib/indices/registry'
+import { MARKET_LABEL, TRIGGER_LABEL, currencySymbol, evidenceOf } from '~/lib/indices/registry'
+import type { EvidenceGrade } from '~/lib/indices/registry'
 import { getOverview } from '~/lib/indices/service'
 import { bindingLevel } from '~/lib/indices/stats'
 import type { OverviewRow, SignalTone } from '~/lib/indices/types'
@@ -65,6 +66,16 @@ const TONE_RANK: Record<SignalTone, number> = { cold: 0, cool: 1, neutral: 2, wa
 function distanceToAction(row: OverviewRow): number {
   const bind = bindingLevel(row.to60, row.to200)
   return bind === null ? Number.POSITIVE_INFINITY : Math.abs(bind.move)
+}
+
+/**
+ * 触发标记的证据级别：取 **binding 那一侧**的级别。
+ * binding 的判定与排序、详情页水位格同源（stats.ts 的 `bindingLevel`），
+ * 所以「触发标记说的是哪条水位」与「页面显示的是哪条水位」永远一致。
+ */
+function triggerGrade(row: OverviewRow): EvidenceGrade {
+  const bind = bindingLevel(row.to60, row.to200)
+  return bind === null ? 'none' : evidenceOf(row.id, bind.side)
 }
 
 /**
@@ -241,11 +252,29 @@ function HeroStat({
  * title 里写明这点，因为两套口径的分歧是最容易被误读成 bug 的地方。
  *
  * 位置固定在状态标签**之后**（用户 2026-09 明确要求），不要挪到前面。
+ *
+ * ⚠️ **2026-09 重标后，「值得关注」这个措辞只在证据站得住时才能用。**
+ * 20 格里只有 4 格 robust（全样本与前后两半段都成立）、3 格 eraOnly，其余 12 格
+ * 样本外已经翻负 —— 那些格子照旧参与触发（判定逻辑不变），但标签必须写成
+ * 「已进入水位 · 证据薄弱」，不能拿暗示行动的措辞蒙过去。
+ * 文案取自 registry 的 TRIGGER_LABEL，**不在这里手写** —— 措辞与证据级别的对应关系
+ * 是产品立场的一部分，散在各页面里就又会分叉。
  */
-function WaterMark() {
+function WaterMark({ grade }: { grade: EvidenceGrade }) {
+  const label = TRIGGER_LABEL[grade]
+  if (label === null) return null
+  const weak = grade === 'fragile'
   return (
-    <span title="已跌破该指数标定的行动水位（阈值口径）。与左侧的状态标签不是一套判定：状态只看偏离度在该时期分布里的相对分位，不含统计优势。">
-      <Tag tone="steel">值得关注</Tag>
+    <span
+      // 哨兵用：.smoke/check.mjs 靠它数触发标记，不靠文案（文案会随证据级别变）
+      data-water-trigger={grade}
+      title={
+        weak
+          ? '已跌破该指数标定的行动水位，但该水位的证据薄弱：样本外（后半段）的 60 日超额已翻负。保留为历史参考线，不构成统计上站得住的优势。'
+          : '已跌破该指数标定的行动水位（阈值口径）。与左侧的状态标签不是一套判定：状态只看偏离度在该时期分布里的相对分位，不含统计优势。'
+      }
+    >
+      <Tag tone={weak ? 'warn' : 'steel'}>{label}</Tag>
     </span>
   )
 }
@@ -304,7 +333,7 @@ function Row({ row }: { row: OverviewRow }) {
             附注（用户 2026-09 明确要求，不要排在前面）。 */}
         {row.waterTriggered ? (
           <span className="ml-2">
-            <WaterMark />
+            <WaterMark grade={triggerGrade(row)} />
           </span>
         ) : null}
         {row.source !== 'live' ? (
@@ -352,7 +381,7 @@ function MobileRow({ row }: { row: OverviewRow }) {
             <span className={`h-1.5 w-1.5 rounded-full ${TONE_DOT[row.signal.tone]}`} />
             {row.signal.title}
           </span>
-          {row.waterTriggered ? <WaterMark /> : null}
+          {row.waterTriggered ? <WaterMark grade={triggerGrade(row)} /> : null}
         </span>
       </div>
 

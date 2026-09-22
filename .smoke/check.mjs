@@ -264,7 +264,8 @@ for (const path of apiPaths) {
 }
 
 /**
- * 交叉断言：总览页的「值得关注」标记数必须等于 `/api/all` 里 actionable 的个数。
+ * 交叉断言：总览页的触发标记数必须等于 `/api/all` 里 actionable 的个数，
+ * 且标记的措辞必须与证据级别相符。
  *
  * 2026-09 用户反馈：「Hero 说触发 1 个，但我看不出是哪一个」—— 原因是
  * `waterTriggered` 在总览页只被用来数了个总数，表格与移动卡片的行里都没有标记，
@@ -272,20 +273,44 @@ for (const path of apiPaths) {
  * 单看路由断言发现不了这种「两侧各自都能拿出来、但彼此没关系」的问题，
  * 所以这里把「页面标记数」与「接口判定数」钉在一起。
  *
+ * 数的是 `data-water-trigger` 属性而**不是文案**：2026-09 重标后触发标记的措辞随证据
+ * 级别变（robust 写「值得关注」、fragile 写「已进入水位 · 证据薄弱」），
+ * 数文案的哨兵会因为改措辞而误报。
+ *
  * 乘 2 是因为桌面表格与移动卡片在 SSR 里都会渲染（用 CSS 切换显隐）。
  */
 {
   const allJson = await (await fetch(`${B}/api/all`)).json()
   const expect = allJson.indices.filter((s) => s.actionable).length
   const html = await (await fetch(`${B}/`)).text()
-  const marks = (html.match(/值得关注/g) || []).length
-  const ok = marks === expect * 2
+  const grades = [...html.matchAll(/data-water-trigger="([^"]*)"/g)].map((m) => m[1])
+
+  const problems = []
+  if (grades.length !== expect * 2) {
+    problems.push(`总览页触发标记 ${grades.length} 处，接口 actionable ${expect} 个（应互为 2 倍）`)
+  }
+  const illegal = grades.filter((g) => !['robust', 'eraOnly', 'fragile'].includes(g))
+  if (illegal.length) problems.push(`出现了非法级别：${[...new Set(illegal)].join(',')}`)
+  if (grades.includes('fragile') && !html.includes('证据薄弱')) {
+    problems.push('有 fragile 级别的触发，却没出现「证据薄弱」字样')
+  }
+  if (grades.includes('robust') && !html.includes('值得关注')) {
+    problems.push('有 robust 级别的触发，却没出现「值得关注」字样')
+  }
+  // 只在「本次触发的全是 fragile」时才可断言：此时不得出现暗示行动的措辞
+  if (grades.length > 0 && grades.every((g) => g === 'fragile') && html.includes('值得关注')) {
+    problems.push('本次触发的全是 fragile 级别，却出现了「值得关注」字样 —— 措辞越界')
+  }
+
+  const ok = problems.length === 0
   if (!ok) bad++
   console.log(
     (ok ? 'OK  ' : 'FAIL') +
       '  ' +
       '触发标记一致性'.padEnd(14) +
-      ` 总览页「值得关注」${marks} 处，接口 actionable ${expect} 个（应互为 2 倍）`,
+      (ok
+        ? ` 触发标记 ${grades.length} 处（${[...new Set(grades)].join('/') || '无'}），接口 actionable ${expect} 个`
+        : ' ' + problems.join('；')),
   )
 }
 

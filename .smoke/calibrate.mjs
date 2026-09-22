@@ -6,15 +6,16 @@
  * ══════════════════════════════════════════════════════════════════════
  *
  * 全样本口径：候选阈值中，满足下列**全部**条件的**最浅**一档 ——
- *   ① 60 日前瞻胜率相对「同窗口常态基线」的超额，其置信下界 ≥ ciGate pp
- *   ② 超额点估计 ≥ minExcess pp
- *   ③ 独立信号 ≥ minEpisodes 段
- *   （比例与计数都按「独立信号」口径：连续命中只算一次，取首次触达日）
+ *   ① 60 日前瞻胜率相对「同窗口常态基线」的超额点估计 ≥ minExcess pp
+ *   ② 独立信号 ≥ minEpisodes 段
+ *   ③ （可选）超额的置信下界 ≥ ciGate pp —— **默认关闭**，理由见下方 ⚠️
+ *   （点估计按**交易日加权**，段数用于门槛与置信区间的样本量）
  *
  * 样本外门槛（决定能不能标 robust）：
  *   ④ 按交易日数对半切：前半段必须也能选出某一档（说明信号在前半段存在）
  *   ⑤ 后半段用**全样本选出的那一档**复核 —— 强度由 `--oos` 决定：
- *        strict（默认）：点估计 ≥ minExcess、≥ minEpisodes 段、置信下界 ≥ 0
+ *        excess（默认）：点估计 ≥ minExcess 且 ≥ minEpisodes 段
+ *        strict        ：再加「置信下界 ≥ 0」（要求两半段都显著）
  *        sign          ：只需点估计 > 0 且 ≥ minEpisodes 段（不翻负）
  *        off           ：不复核
  *
@@ -27,10 +28,15 @@
  *   eraOnly = 全样本不达标，但 ⑥ 过（只在当前时代成立，UI 必须标出来）
  *   none    = 都不过 → 如实留空，UI 显示「无统计优势」，不硬凑数字
  *
- * ⚠️ **门槛是可调的，因为默认值（ciGate=3）非常严**：只有 12~30 段独立信号时，
- *    置信区间半宽就有 ±20~30pp，要求「下界 ≥ +3pp」等于要求超额 ≥ 25pp ——
- *    结果是它系统性地**选中最深的那一档**（与「取最浅档」的意图相反），
- *    产品会几乎永不触发。跑 `--scenarios` 看不同门槛各剩多少格再决定。
+ * ⚠️ **默认值就是已采纳的规则**（`--check` 不带任何 flag 必须全绿）：
+ *    minExcess=3、minEpisodes=12、ciGate=off、oos=excess。
+ *    改默认值前先读 registry.ts 的 ActionLevels 注释 —— 那是产品立场的记录处。
+ *
+ * ⚠️ **`ciGate` 默认关闭（不做显著性检验），这是实测后的选择**：要求「置信下界 ≥ +3pp」
+ *    会把 20 格全部清零，而且反直觉 —— 12~30 段独立信号时区间半宽就有 ±20~30pp，
+ *    要求下界 ≥ +3pp 等于要求超额 ≥ 25pp，于是它系统性地**选中最深的那一档**，
+ *    与「取最浅档」的意图相反，水位会深到几乎永不触发。
+ *    要复现那个结论：`node .smoke/calibrate.mjs --scenarios`。
  *
  * ══════════════════════════════════════════════════════════════════════
  * 用法
@@ -40,7 +46,7 @@
  *   node .smoke/calibrate.mjs --scenarios        # 几套门槛各剩多少格（决策用）
  *   node .smoke/calibrate.mjs --check            # 断言 registry 现值与本规则一致
  *   node .smoke/calibrate.mjs --json             # 机器可读
- *   node .smoke/calibrate.mjs --ci-gate=0 --oos=sign   # 调门槛后重跑报告
+ *   node .smoke/calibrate.mjs --oos=strict --ci-gate=3   # 试更严的样本外/显著性门槛
  *
  * ⚠️ 本脚本**不 import 应用代码**（与 scripts/verify.mjs 同理），统计原语是手抄的，
  *    与 src/lib/indices/stats.ts 同式 —— 改动请同步两处。这样做的代价是可能漂移，
@@ -86,8 +92,9 @@ const RULE = {
   horizon: 60,
   minExcess: Number(flag('min-excess', 3)),
   minEpisodes: Number(flag('min-episodes', 12)),
-  ciGate: flag('ci-gate', '3') === 'off' ? Number.NEGATIVE_INFINITY : Number(flag('ci-gate', 3)),
-  oos: flag('oos', 'strict'),
+  // 默认不做显著性检验（已采纳的规则），要试严格口径就 --ci-gate=3
+  ciGate: flag('ci-gate', 'off') === 'off' ? Number.NEGATIVE_INFINITY : Number(flag('ci-gate', 3)),
+  oos: flag('oos', 'excess'),
   z: 1.96,
 }
 const MODE = argv.includes('--check')
@@ -255,7 +262,9 @@ function validateOutOfSample(s, key, from, to, threshold) {
       ? true
       : RULE.oos === 'sign'
         ? e.episodes >= RULE.minEpisodes && e.excessPp > 0
-        : e.episodes >= RULE.minEpisodes && e.excessPp >= RULE.minExcess && e.ci[0] >= 0
+        : RULE.oos === 'excess'
+          ? e.episodes >= RULE.minEpisodes && e.excessPp >= RULE.minExcess
+          : e.episodes >= RULE.minEpisodes && e.excessPp >= RULE.minExcess && e.ci[0] >= 0
   return { ...e, ok }
 }
 
@@ -294,8 +303,8 @@ function calibrate(s, key, market) {
   const eraFrom = indexOfDate(s.dates, ERA_START[market])
   const picked = selectLevel(s, key, 0, to) ?? selectLevel(s, key, eraFrom, to)
   const oosBackup = RULE.oos
-  // 定级一律用严格样本外（`--oos` 只影响选档时的复核），这样不同门槛方案之间可比
-  RULE.oos = 'strict'
+  // scenarios 模式强制用命令行给的 oos（默认 strict），使各行在**同一强度**下可比
+  RULE.oos = oosBackup
   const g = picked
     ? gradeLevel(s, key, market, picked.threshold)
     : {
@@ -404,7 +413,9 @@ if (MODE === 'scenarios') {
     ['E 现行 registry 口径（点估计≥+3）', { minExcess: 3, ciGate: 'off' }],
   ]
   console.log('门槛方案对比（每格 = 一个指数的某个口径，共 20 格）')
-  console.log('选档按各行门槛；**定级一律用严格样本外复核**，所以各行可比\n')
+  console.log(
+    `选档按各行门槛；定级统一用 --oos=${RULE.oos}，所以各行可比\n`,
+  )
   console.log('方案'.padEnd(40) + ' 有水位  样本外通过  eraOnly  fragile  无水位')
   console.log('─'.repeat(78))
   for (const [name, cfg] of SCENARIOS) {

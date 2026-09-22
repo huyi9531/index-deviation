@@ -3,9 +3,9 @@
   "symbol": "1.000688",
   "provider": "eastmoney",
   "name": "科创50",
-  "source": "新浪财经 getKLineData（东财限流时的兜底源；指数无复权问题）",
-  "fetchedAt": "2026-09-16T08:12:34.407Z",
-  "firstDate": "20200102",
-  "lastDate": "20260916",
-  "tradingDays": 1627
+  "source": "东方财富 push2his（klt=101 日线，fqt=1 前复权）",
+  "fetchedAt": "2026-09-22T13:51:05.536Z",
+  "firstDate": "20191231",
+  "lastDate": "20260922",
+  "tradingDays": 1632
 }

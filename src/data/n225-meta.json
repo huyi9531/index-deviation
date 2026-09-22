@@ -4,8 +4,8 @@
   "provider": "yahoo",
   "name": "Nikkei 225",
   "source": "Yahoo Finance chart API",
-  "fetchedAt": "2026-09-17T02:57:43.829Z",
+  "fetchedAt": "2026-09-22T13:51:14.936Z",
   "firstDate": "19650105",
-  "lastDate": "20260917",
-  "tradingDays": 15170
+  "lastDate": "20260918",
+  "tradingDays": 15171
 }

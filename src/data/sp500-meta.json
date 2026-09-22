@@ -3,9 +3,9 @@
   "symbol": "^GSPC",
   "provider": "yahoo",
   "name": "S&P 500",
-  "source": "Yahoo Finance chart API（成交额列为成交量 volume）",
-  "fetchedAt": "2026-09-16T03:23:59.860Z",
+  "source": "Yahoo Finance chart API",
+  "fetchedAt": "2026-09-22T13:49:38.690Z",
   "firstDate": "19480102",
-  "lastDate": "20260915",
-  "tradingDays": 19798
+  "lastDate": "20260922",
+  "tradingDays": 19803
 }

@@ -4,8 +4,8 @@
   "provider": "eastmoney",
   "name": "恒生科技指数",
   "source": "东方财富 push2his（klt=101 日线，fqt=1 前复权）",
-  "fetchedAt": "2026-09-17T02:56:18.074Z",
+  "fetchedAt": "2026-09-22T13:51:07.384Z",
   "firstDate": "20141231",
-  "lastDate": "20260917",
-  "tradingDays": 2882
+  "lastDate": "20260922",
+  "tradingDays": 2885
 }

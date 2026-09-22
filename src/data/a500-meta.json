@@ -3,9 +3,9 @@
   "symbol": "1.000510",
   "provider": "eastmoney",
   "name": "中证A500",
-  "source": "东方财富 push2his（klt=101 日线，fqt=1 前复权；成交额取第 7 列）",
-  "fetchedAt": "2026-09-16T03:26:34.745Z",
+  "source": "东方财富 push2his（klt=101 日线，fqt=1 前复权）",
+  "fetchedAt": "2026-09-22T13:51:02.473Z",
   "firstDate": "20050104",
-  "lastDate": "20260916",
-  "tradingDays": 5273
+  "lastDate": "20260922",
+  "tradingDays": 5277
 }

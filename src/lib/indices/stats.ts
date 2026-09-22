@@ -233,9 +233,14 @@ export function episodeFirstTouch(indices: number[]): number[] {
 /**
  * episode 级前瞻统计：每段独立信号只取**首个**交易日作为一次观测。
  *
- * 与 `summarize(s, indices, ...)`（带内所有交易日加权）是两套口径，别混用：
- * 前者回答「随机挑一次机会，之后涨的概率」，后者回答「随机挑一天」。
- * 「同类位置超额」用前者 —— 它与标定用的「独立信号」同源。
+ * ⚠️ **不要拿它当「同类位置/跌破水位」的点估计。** 2026-09 实测（10 个指数、
+ * 已发布水位）：首次触达日永远是那一段里**最浅**的一天（刚跨过阈值），而一段里
+ * 更深的日子历史上反弹更好 —— 于是这个口径**系统性低估**「处于该位置时任意一天
+ * 买入」的平均体验，它能翻转 10 格里 5~6 格的样本外结论。
+ * 它回答的是「恰好在穿越那天买入」，而用户是被告知当天、或某天打开看到时动手。
+ *
+ * 正确用法是：点估计用 `summarize`（交易日加权），而**置信区间的 n 用这里的段数**
+ * （同一段内的观测高度相关，拿交易日当 n 会把区间压得假窄）。
  */
 export function summarizeEpisodes(
   s: ComputedSeries,
@@ -246,14 +251,13 @@ export function summarizeEpisodes(
 }
 
 /**
- * Wilson 得分区间（比例），返回 0~1。
+ * Wilson 得分区间。`p` 是比例，`n` 是**独立观测数**（不是交易日数）。
  *
  * 比正态近似好在小样本与极端比例下仍不出界（不会给出小于 0 或大于 1 的区间）——
  * 本产品的指数都是几十到几百段信号，小样本是常态，正态近似在这里会给出负的胜率下界。
  */
-export function wilsonInterval(wins: number, n: number, z = 1.96): [number, number] {
-  if (n <= 0) return [Number.NaN, Number.NaN]
-  const p = wins / n
+export function wilsonInterval(p: number, n: number, z = 1.96): [number, number] {
+  if (n <= 0 || !Number.isFinite(p)) return [Number.NaN, Number.NaN]
   const z2 = z * z
   const denom = 1 + z2 / n
   const center = (p + z2 / (2 * n)) / denom
@@ -268,21 +272,24 @@ export function wilsonInterval(wins: number, n: number, z = 1.96): [number, numb
  * 小样本下它不会给出荒谬的区间；而且它是解析式 —— 确定性、无需随机数，
  * 符合 SSR 与缓存的要求（bootstrap 在这里不可取）。
  *
+ * `n1`/`n0` 是**独立观测数**：点估计可以是交易日加权的比例，但 n 必须用独立信号段数
+ * （同一段内的观测高度相关，拿交易日当 n 会把区间压得假窄）—— 这是聚类数据的标准保守处理。
+ *
  * 实现取自 Newcombe RG (1998)「Interval estimation for the difference between
  * independent proportions」的方法 10：先各自取 Wilson 区间，再平方相加。
  */
 export function newcombeDiff(
-  wins1: number,
+  p1: number,
   n1: number,
-  wins0: number,
+  p0: number,
   n0: number,
   z = 1.96,
 ): [number, number] {
-  if (n1 <= 0 || n0 <= 0) return [Number.NaN, Number.NaN]
-  const p1 = wins1 / n1
-  const p0 = wins0 / n0
-  const [l1, u1] = wilsonInterval(wins1, n1, z)
-  const [l0, u0] = wilsonInterval(wins0, n0, z)
+  if (n1 <= 0 || n0 <= 0 || !Number.isFinite(p1) || !Number.isFinite(p0)) {
+    return [Number.NaN, Number.NaN]
+  }
+  const [l1, u1] = wilsonInterval(p1, n1, z)
+  const [l0, u0] = wilsonInterval(p0, n0, z)
   const lower = p1 - p0 - Math.sqrt((p1 - l1) ** 2 + (u0 - p0) ** 2)
   const upper = p1 - p0 + Math.sqrt((u1 - p1) ** 2 + (p0 - l0) ** 2)
   return [lower, upper]

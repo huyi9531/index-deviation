@@ -17,7 +17,6 @@ import {
   neighborhoodStats,
   newcombeDiff,
   revertStats,
-  summarizeEpisodes,
   thresholdRow,
   thresholdTable,
 } from './stats'
@@ -143,28 +142,26 @@ const ANALOG_MIN_SAMPLES = 30
 
 function analog(s: ComputedSeries, key: MaKey, era: Era): AnalogAnswer {
   const center = s[key][s.dates.length - 1]
-  const { indices, firstTouch } = neighborhoodStats(s, key, era, center, 1)
-
-  // episode 级口径：每段独立信号取首次触达日（与标定用的「独立信号」同源）。
-  // 不用带内所有交易日加权 —— 那样一次 2008 年式的长暴跌会独占权重。
-  const ep = summarizeEpisodes(s, indices)
-  const h20 = ep.find((x) => x.days === 20)
-  const h60 = ep.find((x) => x.days === 60)
+  const { row, indices, firstTouch } = neighborhoodStats(s, key, era, center, 1)
+  const h20 = row.horizons.find((x) => x.days === 20)
+  const h60 = row.horizons.find((x) => x.days === 60)
 
   const window = eraWindow(s, era)
-  const base = baselineRates(s, window).find((b) => b.days === 20)
-  const base20 = base?.winRate
-  // 常态侧的「独立观测数」按非重叠 20 日块折算：日收益的 20 日前瞻值彼此高度重叠，
-  // 直接拿交易日数当 n 会把基线的不确定性压得几乎为零，区间因此假窄。
-  const n0 = Math.max(1, Math.floor((window.to - window.from) / 20))
-  const wins0 = Number.isFinite(base20) ? Math.round((base20 as number) * n0) : 0
-
+  const base20 = baselineRates(s, window).find((b) => b.days === 20)?.winRate
   const win20 = h20?.winRate ?? Number.NaN
+
+  // 置信区间的样本量：点估计是**交易日加权**的（回答「处于这个位置时平均会怎样」，
+  // 用户可能在第 1 天也可能在第 40 天看到信号），但 n 用**独立信号段数** ——
+  // 同一段内的前瞻收益高度相关，拿交易日当 n 会把区间压得假窄。
+  // 常态侧同理，按非重叠 20 日块折算。
+  const n1 = firstTouch.filter((i) => i + 20 < s.dates.length).length
+  const n0 = Math.max(1, Math.floor((window.to - window.from) / 20))
+
   const usable =
     Number.isFinite(win20) && Number.isFinite(base20) && indices.length >= ANALOG_MIN_SAMPLES
 
   const excess20 = usable ? round2((win20 - (base20 as number)) * 100) : null
-  const ci = usable ? newcombeDiff(h20?.wins ?? 0, h20?.n ?? 0, wins0, n0) : null
+  const ci = usable ? newcombeDiff(win20, n1, base20 as number, n0) : null
   const excessCi20: [number, number] | null =
     ci && Number.isFinite(ci[0]) && Number.isFinite(ci[1])
       ? [round2(ci[0] * 100), round2(ci[1] * 100)]

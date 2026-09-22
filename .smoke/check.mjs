@@ -54,7 +54,12 @@ const checks = [
       '底纹为历史级抄底 / 过热区间',
       '概率速查',
       '时代差异',
-      '到 -10% 水位',
+      // 2026-09（R0）：未触发时改显示**更近**的那条水位，与总览排序同源。
+      // 标普的 dev60(-7%) 比 dev200(-10%) 近，所以这里从「到 -10% 水位」
+      // 变为「到 -7% 水位」。要改这条判定请改 stats.ts 的 bindingLevel()，
+      // 两个页面共用同一个函数，别在这里写第三套。
+      '到 -7% 水位',
+      '还需跌',
       '常态（不设条件）',
       '1970 年后',
       '2000 年后',
@@ -121,8 +126,12 @@ const checks = [
   // 统计窗口起自 2020-11-02，已晚于发布日 2020-07-23 → 回溯段进不了统计，不标回溯。
   [
     '/i/star50',
-    ['科创50', '东方财富', '¥', '到 -16% 水位', '常态（不设条件）'],
-    ['含回溯段', '2010 年后', '2016 年后', '2019 年后'],
+    // 2026-09（R0）：它的 dev60(-4%) 已跌破、dev200(-16%) 没有，所以水位格必须
+    // 显示 60 日口径且为「已进入」。改动前这里显示「到 -16% 水位」，与同屏的
+    // 「值得关注」标签直接打架 —— 这正是 R0 修掉的那个矛盾，
+    // 文件末尾的「水位格不自相矛盾」哨兵就是它的固化。
+    ['科创50', '东方财富', '¥', '到 -4% 水位', '已进入', '常态（不设条件）'],
+    ['到 -16% 水位', '还需跌', '含回溯段', '2010 年后', '2016 年后', '2019 年后'],
     200,
   ],
   ['/stats/star50', ['历史证据', '历史极端低点'], ['1970 年后'], 200],
@@ -368,6 +377,44 @@ const INDEX_NAMES = [
       '排序 = 离水位距离'.padEnd(14) +
       (ok
         ? ` ${pageRows.length} 行、${groups.size} 个温度分组均为「已触发 → 距离升序」`
+        : ' ' + problems.join('；')),
+  )
+}
+
+/**
+ * 交叉断言（水位格）：详情页的「行动水位」格不得与「值得关注」自相矛盾。
+ *
+ * 2026-09 的真实形状：科创50 已跌破 60 日水位（值得关注），但水位格只认 200 日口径，
+ * 于是同一屏里既写着「值得关注」又写着「到 -16% 水位还需跌 17%」。判定「该看哪条水位」
+ * 的规则现在唯一收在 stats.ts 的 bindingLevel()，这条断言把它钉住 ——
+ * 谁再写第二套判定，这里就会响。
+ *
+ * 判据只用页面上两个文案串，不依赖 class 名与具体数值，所以与当天涨跌无关：
+ *   触发（actionable）→ 必须出现「已进入」，且**不得**出现「还需跌」
+ *   未触发            → 不得出现「已进入」
+ * （两个串目前只在 SummaryStrip 的水位格里渲染；若哪天别处也用了同样的词，
+ *   需要把判据改成更精确的定位。）
+ */
+{
+  const allJson = await (await fetch(`${B}/api/all`)).json()
+  const problems = []
+  for (const s of allJson.indices) {
+    const html = await (await fetch(`${B}/i/${s.indexId}`)).text()
+    const entered = html.includes('已进入')
+    const drop = html.includes('还需跌')
+    if (s.actionable && !entered) problems.push(`${s.name} 已触发却不显示「已进入」`)
+    if (s.actionable && drop) problems.push(`${s.name} 已触发却仍显示「还需跌」`)
+    if (!s.actionable && entered) problems.push(`${s.name} 未触发却显示「已进入」`)
+  }
+  const ok = problems.length === 0
+  if (!ok) bad++
+  const hit = allJson.indices.filter((s) => s.actionable).length
+  console.log(
+    (ok ? 'OK  ' : 'FAIL') +
+      '  ' +
+      '水位格不自相矛盾'.padEnd(14) +
+      (ok
+        ? ` ${allJson.indices.length} 个指数的水位格与「值得关注」一致（当前触发 ${hit} 个）`
         : ' ' + problems.join('；')),
   )
 }

@@ -344,6 +344,41 @@ export function waterTriggered(
   return below(dev60, action.dev60) || below(dev200, action.dev200)
 }
 
+/**
+ * 判定「当前该看哪一条水位」，返回 binding 的那一侧与它的距离（价格 %）。
+ *
+ * 两个调用点 —— 总览排序（`index.tsx` 的 `distanceToAction`）与详情页水位格
+ * （`Blocks.tsx` 的 `SummaryStrip`）—— 必须共用它。它们曾经各写一份，于是
+ * 「dev60 已触发、dev200 未触发」的指数会在一屏之内自相矛盾：标签说「值得关注」，
+ * 格子却说「到 -16% 水位还需跌 17%」（2026-09 的科创50 就是这个形状）。
+ *
+ * 入参就是 `CurrentStatus` / `OverviewRow` 上那两个已经算好的「还需跌 %」
+ * （`priceMoveTo` 的产物：触发时为 0、无水位时为 null），所以不用再传水位值进来 ——
+ * 那条信息已经含在这两个数里了。
+ *
+ * 规则：
+ *   ① 已跌破的优先（move === 0）—— 触发的那条才是当前 binding 的水位；
+ *      两条都触发时取 200 日（长期中枢、信号更重，与改动前的展示一致）。
+ *   ② 都未触发时取近的那条（离动手更近）。
+ *   ③ 两条都没标定水位 → null，由渲染层显示「无水位」，不编一个数字糊过去。
+ */
+export function bindingLevel(
+  to60: number | null,
+  to200: number | null,
+): { side: 'dev60' | 'dev200'; move: number } | null {
+  const sides = [
+    { side: 'dev60' as const, move: to60 },
+    { side: 'dev200' as const, move: to200 },
+  ].filter((s): s is { side: 'dev60' | 'dev200'; move: number } => s.move !== null)
+  if (sides.length === 0) return null
+
+  const triggered = sides.filter((s) => s.move === 0)
+  if (triggered.length > 0) {
+    return triggered.find((s) => s.side === 'dev200') ?? triggered[0]
+  }
+  return sides.reduce((a, b) => (Math.abs(b.move) < Math.abs(a.move) ? b : a))
+}
+
 /** 当前状态 + 信号判定。action 为该指数的行动水位（实测标定），可为 null 表示无水位 */
 export function currentStatus(
   s: ComputedSeries,

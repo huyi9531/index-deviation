@@ -4,6 +4,7 @@ import { Card, ChartLink, Tag } from '~/components/ui'
 import { fmtDate, fmtExcess, fmtPct, fmtPoint } from '~/lib/format'
 import { MARKET_LABEL, currencySymbol } from '~/lib/indices/registry'
 import { getOverview } from '~/lib/indices/service'
+import { bindingLevel } from '~/lib/indices/stats'
 import type { OverviewRow, SignalTone } from '~/lib/indices/types'
 
 export const Route = createFileRoute('/')({
@@ -55,18 +56,15 @@ const TONE_RANK: Record<SignalTone, number> = { cold: 0, cool: 1, neutral: 2, wa
  *   否则取两条水位里近的那条 → min(|to60|, |to200|)，单位是价格变动 %
  *   两条水位都没标定      → Infinity（垫底）
  *
- * 两个坑：
- *   ① 原来只认 to200，于是已经跌破 **dev60** 水位的指数会被按 dev200 的距离排到
- *      第 8 位 —— 等于把那次触发当成不存在。这里必须两个口径一起看。
- *   ② 两个口径都无水位才是 Infinity。以前是「to200 === null 就垫底」，而纳斯达克100
- *      的 dev200 恰好没有水位（dev60 有），于是它无论跌到哪都排最后。
+ * 选哪一条的规则**不在这里**，在 `stats.ts` 的 `bindingLevel()` —— 详情页水位格
+ * 调的是同一个函数。曾经这里与 SummaryStrip 各写一份，于是已经跌破 dev60 水位的指数
+ * 会被按 dev200 的距离排到第 8 位（等于把那次触发当成不存在），而详情页会同时显示
+ * 「值得关注」和「到 -16% 水位还需跌 17%」。
  * 注意判定用的是**阈值口径**的 waterTriggered，不是 signal.tone 的分位口径。
  */
 function distanceToAction(row: OverviewRow): number {
-  if (row.waterTriggered) return 0
-  const gaps = [row.to60, row.to200].filter((v): v is number => v !== null)
-  if (gaps.length === 0) return Number.POSITIVE_INFINITY
-  return Math.min(...gaps.map((g) => Math.abs(g)))
+  const bind = bindingLevel(row.to60, row.to200)
+  return bind === null ? Number.POSITIVE_INFINITY : Math.abs(bind.move)
 }
 
 /**

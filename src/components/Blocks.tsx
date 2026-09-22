@@ -1,5 +1,6 @@
 import { fmtDate, fmtDateTime, fmtExcess, fmtInt, fmtPct, fmtPoint, fmtProb } from '~/lib/format'
 import { currencySymbol } from '~/lib/indices/registry'
+import { bindingLevel } from '~/lib/indices/stats'
 import type {
   AnalogAnswer,
   BaselineStat,
@@ -82,17 +83,17 @@ export function SummaryStrip({
   baseline: BaselineStat[]
 }) {
   const { signal } = status
-  // 水位格优先显示 200 日口径（长期中枢、信号更重）；该口径没有标定水位时才回落到
-  // 60 日口径。不能写死 dev200：纳斯达克100 的 dev200 至今为空、dev60 有一条 -10%，
-  // 写死会让它在格子里显示「无水位」，而它其实已经有一条能触发的 60 日水位 —— 一屏
-  // 之内自相矛盾（与 2026-09 科创50 那次页面/接口口径分歧同源）。
-  const use60 = actionLevel.dev200 === null && actionLevel.dev60 !== null
-  const level = use60 ? actionLevel.dev60 : actionLevel.dev200
-  const move = use60 ? status.toThreshold60 : status.toThreshold200
-  const sideLabel = use60 ? '60' : '200'
+  // 该看哪一条水位，由 stats.ts 的 bindingLevel() 决定 —— 总览页的排序调的是同一个
+  // 函数。这里曾经自己写一份（「dev200 为空时才回落到 dev60」），于是 dev60 已触发、
+  // dev200 没触发的指数（科创50 / 纳斯达克100）会在同一屏里同时显示「值得关注」与
+  // 「到 -16% 水位还需跌 17%」—— 一屏之内自相矛盾。
+  const bind = bindingLevel(status.toThreshold60, status.toThreshold200)
+  const sideLabel = bind?.side === 'dev60' ? '60' : '200'
+  const level = bind === null ? null : actionLevel[bind.side]
+  const move = bind?.move ?? null
   const world = baseline.find((b) => b.days === 20)?.winRate ?? Number.NaN
-  const noLevel = level === null
-  const inLevel = move === 0
+  const noLevel = bind === null
+  const inLevel = bind !== null && bind.move === 0
 
   const moveText = noLevel
     ? '无水位'
@@ -167,7 +168,7 @@ export function SummaryStrip({
           sub={
             noLevel
               ? '历史各档位均无超额'
-              : `${sideLabel} 日口径${use60 ? '（200 日口径未标定）' : ''} · ${inLevel ? '已进入水位区间' : '按价格折算，假设均线短期不动'}`
+              : `${sideLabel} 日口径${bind?.side === 'dev60' && actionLevel.dev200 === null ? '（200 日口径未标定）' : ''} · ${inLevel ? '已进入水位区间' : '按价格折算，假设均线短期不动'}`
           }
         />
         <Metric

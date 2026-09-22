@@ -1,13 +1,24 @@
 /**
  * 找出窄屏下超出视口的元素。
  *   node .smoke/overflow.mjs /i/sp500
+ *
+ * ⚠️ Windows Git Bash 下**必须**加 MSYS_NO_PATHCONV=1：否则参数 `/i/sp500` 会被
+ * MSYS 当成 Unix 路径改写成 `I:/sp500`，拼出 `http://localhost:3000I:/sp500`，
+ * 报「Cannot navigate to invalid URL」—— 看起来像 Chrome 或脚本坏了，
+ * 实际只是参数被改写了（2026-09 实测踩过，白查了半天）。正确用法：
+ *   MSYS_NO_PATHCONV=1 BASE=http://localhost:4173 node .smoke/overflow.mjs /i/sp500 390
+ *
+ * 判读：最后一行会直接给结论（退出码 1 = 页面级横向溢出）。
+ * 中途列出的元素若位于 thin-scroll 容器内属预期 —— 那些表格本来就能横滚。
  */
 import { spawn } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
 
 const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
 const PORT = 9334
-const BASE = process.env.BASE ?? 'http://localhost:3000'
+// 用 || 而不是 ??：空字符串也要回落。环境里可能存在 `BASE=`（空值）这种情形，
+// ?? 兜不住它，会拼出非法 URL。
+const BASE = process.env.BASE || 'http://localhost:3000'
 const path = process.argv[2] ?? '/i/sp500'
 const WIDTH = Number(process.argv[3] ?? 390)
 
@@ -19,6 +30,10 @@ const chrome = spawn(CHROME, [
   `--remote-debugging-port=${PORT}`,
   'about:blank',
 ])
+
+// 失败时也要把 Chrome 带走：否则 9334 上会留一个孤儿实例，下次报错更难判断
+// （原脚本只在正常结束时 kill，throw 出去就漏了）
+process.on('exit', () => chrome.kill())
 
 async function target() {
   for (let i = 0; i < 40; i++) {
@@ -92,12 +107,19 @@ const { result } = await send('Runtime.evaluate', {
 })
 
 const v = result.value
+const overflowed = v.sw > v.cw + 1
 console.log(`clientWidth=${v.cw} scrollWidth=${v.sw}`)
 for (const o of v.out) {
   console.log(
     `${String(o.left).padStart(5)} → ${String(o.right).padStart(5)}  w=${String(o.w).padStart(4)}  <${o.tag}> ${o.cls}`,
   )
 }
+console.log(
+  overflowed
+    ? `✗ 页面横向溢出：scrollWidth ${v.sw} > clientWidth ${v.cw}（${path} @ ${WIDTH}px）`
+    : `✓ 无页面级横向溢出：${path} @ ${WIDTH}px（clientWidth = scrollWidth = ${v.cw}）`,
+)
 
 ws.close()
 chrome.kill()
+process.exit(overflowed ? 1 : 0)

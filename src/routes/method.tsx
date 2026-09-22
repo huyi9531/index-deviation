@@ -1,6 +1,31 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Card, Divider, SectionHead, Tag } from '~/components/ui'
 
+/**
+ * 把文案里的 `**强调**` 渲染成粗体。
+ *
+ * 本页的表格与卡片文案是**纯字符串**，里面用了不少 `**…**` 标记 —— 不处理的话页面上
+ * 会直接显示字面的星号（2026-09 截图确认过：12 处全是裸星号，是既有 bug）。
+ * 这里只支持 `**粗体**` 一种标记，不做完整 markdown：为一句强调引入解析器不值当。
+ * 单星号 `*` 不处理 —— 文案里没有用到。
+ */
+function RichText({ text }: { text: string }) {
+  const parts = text.split(/\*\*(.+?)\*\*/g)
+  return (
+    <>
+      {parts.map((p, i) =>
+        i % 2 === 1 ? (
+          <strong key={`b${i}`} className="font-medium text-ink">
+            {p}
+          </strong>
+        ) : (
+          <span key={`t${i}`}>{p}</span>
+        ),
+      )}
+    </>
+  )
+}
+
 export const Route = createFileRoute('/method')({
   head: () => ({
     meta: [
@@ -149,7 +174,9 @@ function MethodPage() {
                   <td className="w-[120px] bg-surface-2 px-4 py-3 align-top font-medium text-ink">
                     {k}
                   </td>
-                  <td className="px-4 py-3 leading-relaxed text-muted">{v}</td>
+                  <td className="px-4 py-3 leading-relaxed text-muted">
+                    <RichText text={v} />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -188,9 +215,75 @@ function MethodPage() {
             <div key={c.title} className="rounded-lg border border-line bg-surface-2 p-5">
               <Tag tone={c.tone}>{c.tag}</Tag>
               <h3 className="mt-3 text-[13px] font-semibold text-ink">{c.title}</h3>
-              <p className="mt-2 text-[12px] leading-relaxed text-muted">{c.body}</p>
+              <p className="mt-2 text-[12px] leading-relaxed text-muted">
+                <RichText text={c.body} />
+              </p>
             </div>
           ))}
+        </div>
+      </Card>
+
+      {/* 3.5 */}
+      <Card className="p-6 sm:p-7">
+        <SectionHead
+          label="03.5 对照"
+          title="偏离度比「最近跌了多少」多知道什么"
+          hint="偏离度是过去 N 天收盘价的确定性函数，所以它和「最近跌了多少」天然高度相关。那就把两者放在一起比。"
+        />
+        <p className="mt-5 text-[13px] leading-relaxed text-ink-2">
+          <RichText text="做法：对每个指数，取它**标定的 60 日水位**信号，再找一个**独立信号数与之尽量相等**的「近 60 日跌幅 ≤ t」信号，两者比同一个东西 —— 60 日胜率相对常态基线的超额（交易日加权）。如果两者差不多，说明「乖离率」只是「最近跌了多少」的重包装。" />
+        </p>
+        <div className="thin-scroll mt-4 overflow-x-auto rounded-lg border border-line">
+          <table className="w-full min-w-[560px] border-collapse text-[12.5px]">
+            <thead>
+              <tr className="border-b border-line bg-surface-2 text-left">
+                <th className="px-4 py-2.5 font-medium text-faint">指数</th>
+                <th className="px-4 py-2.5 font-medium text-faint">偏离度信号（水位）</th>
+                <th className="px-4 py-2.5 font-medium text-faint">等频的纯跌幅信号</th>
+                <th className="px-4 py-2.5 font-medium text-faint">差值</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                ['标普500', '≤ -7%', '+3.5pp', '134 段', '≤ -9.5%', '+0.5pp', '+3.0pp'],
+                ['纳斯达克100', '≤ -10%', '-11.0pp', '84 段', '≤ -12.2%', '-8.8pp', '-2.1pp'],
+                ['沪深300', '≤ -4%', '-3.9pp', '124 段', '≤ -4.7%', '-3.8pp', '-0.1pp'],
+                ['中证A500', '≤ -4%', '-2.9pp', '141 段', '≤ +0.3%', '-2.7pp', '-0.2pp'],
+                ['中证500', '≤ -8%', '+3.2pp', '82 段', '≤ -7.7%', '+1.0pp', '+2.1pp'],
+                ['创业板指', '≤ -4%', '+4.5pp', '94 段', '≤ -7.5%', '+3.8pp', '+0.8pp'],
+                ['科创50', '≤ -4%', '+6.8pp', '50 段', '≤ -5.0%', '+1.3pp', '+5.5pp'],
+                ['恒生指数', '≤ -7%', '+5.3pp', '128 段', '≤ -10.0%', '+4.8pp', '+0.5pp'],
+                ['恒生科技', '≤ -8%', '+3.8pp', '71 段', '≤ -4.0%', '-1.8pp', '+5.6pp'],
+                ['日经225', '≤ -10%', '+3.0pp', '128 段', '≤ -12.7%', '-4.0pp', '+7.0pp'],
+              ].map((r) => (
+                <tr key={r[0]} className="border-b border-line/70 last:border-0">
+                  <td className="px-4 py-2.5 font-medium text-ink">{r[0]}</td>
+                  <td className="num px-4 py-2.5 text-muted">
+                    {r[1]} → {r[2]}（{r[3]}）
+                  </td>
+                  <td className="num px-4 py-2.5 text-muted">
+                    {r[4]} → {r[5]}
+                  </td>
+                  <td
+                    className={`num px-4 py-2.5 font-medium ${Number.parseFloat(r[6]) > 0 ? 'text-up' : 'text-faint'}`}
+                  >
+                    {r[6]}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-4 space-y-2 text-[12px] leading-relaxed text-muted">
+          <p>
+            <RichText text="结论：10 个指数里 7 个偏离度更好（平均多 +2.2pp），但**另外 3 个几乎没差别甚至更差**（纳斯达克100 −2.1pp、沪深300 −0.1pp、中证A500 −0.2pp）—— 在那些指数上，「乖离率」确实只是「最近跌了多少」的重包装。这是同一套数据算出来的，不是主观判断。" />
+          </p>
+          <p>
+            <RichText text="⚠️ 两个读法上的限制：① 匹配方式是让两个信号的**独立信号数**尽量接近，所以对触发极频繁的指数（如中证A500 的水位在 20 年里出现 141 段），匹配出的纯跌幅阈值会松到接近「没涨」—— 那种情况下这张表只能说明「两者都没优势」，不能说明偏离度更好；② 两者高度相关，差值很小的时候不宜过度解读。" />
+          </p>
+          <p className="text-faint">
+            数据截止 2026-09-22。重跑：<span className="num">node .smoke/contrast.mjs</span>
+          </p>
         </div>
       </Card>
 
@@ -238,7 +331,9 @@ function MethodPage() {
           ].map(([k, v]) => (
             <div key={k}>
               <dt className="label-xs">{k}</dt>
-              <dd className="mt-1.5 leading-relaxed text-ink-2">{v}</dd>
+              <dd className="mt-1.5 leading-relaxed text-ink-2">
+                <RichText text={v} />
+              </dd>
             </div>
           ))}
         </dl>

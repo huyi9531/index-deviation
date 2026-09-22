@@ -58,6 +58,7 @@ notify/                 ★ 独立的触发通知 worker（不属于站点构建
 | `node .smoke/overflow.mjs <path> [width]` | 窄屏横向溢出检查（headless Chrome，默认 390px） |
 | `node scripts/verify.mjs --base=<url>` | 从 CSV 独立复算并与 `/api/:id` 对拍 |
 | `node .smoke/calibrate.mjs` | 行动水位标定（**只读**，不写 registry）：默认出报告，`--check` 与 registry 对拍，`--grade-current` 给现有值定级，`--scenarios` 换门槛看剩多少格 |
+| `node .smoke/contrast.mjs` | 「偏离度 vs 等频纯跌幅」对照表（`/method` 的 03.5 小节由它生成，改数据后重跑并更新那张静态表） |
 | `node .smoke/notify-check.mjs` | 通知 worker 状态机自检（**全程离线**，六场景断言，约 40s） |
 | `wrangler deploy -c notify/wrangler.jsonc` | 部署通知 worker（独立于站点，见架构第 15 条） |
 

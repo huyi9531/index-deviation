@@ -499,5 +499,46 @@ const INDEX_NAMES = [
   )
 }
 
+/**
+ * 交叉断言（渲染残留）：页面 HTML 里不应出现 markdown 的 `**` 标记。
+ *
+ * 这个 bug 光看代码看不出来：方法页的表格与卡片文案是纯字符串，作者在里面写了
+ * `**加粗**`，页面上就显示成字面的星号 —— 2026-09 截图才发现，12 处全是裸星号。
+ * 而 `Metric` 的 `hint`（string）与 `ThresholdTable` 的模板字符串同样收不了 JSX，
+ * 只能写纯文本。这条哨兵把所有路由扫一遍，谁再写进去就会响。
+ *
+ * 白名单：代码示例里合法出现的 `**`（目前一处也没有）需要在这里显式列出。
+ */
+{
+  const pages = [
+    '/',
+    '/method',
+    '/i/sp500',
+    '/i/nasdaq',
+    '/i/star50',
+    '/stats/sp500',
+    '/stats/nasdaq',
+  ]
+  const problems = []
+  for (const p of pages) {
+    const html = await (await fetch(`${B}${p}`)).text()
+    // 防空转：取不到内容时不能静默算「0 处」通过
+    if (html.length < 1000) {
+      problems.push(`${p} 只拿到 ${html.length} 字节，无法判定`)
+      continue
+    }
+    const n = (html.match(/\*\*/g) || []).length
+    if (n > 0) problems.push(`${p} 有 ${n} 处字面 **`)
+  }
+  const ok = problems.length === 0
+  if (!ok) bad++
+  console.log(
+    (ok ? 'OK  ' : 'FAIL') +
+      '  ' +
+      '无 markdown 残留'.padEnd(14) +
+      (ok ? ` ${pages.length} 个路由均无字面 ** 标记` : ' ' + problems.join('；')),
+  )
+}
+
 console.log(bad === 0 ? '\n全部通过 ✓' : `\n有 ${bad} 项未通过 ✗`)
 process.exit(bad === 0 ? 0 : 1)

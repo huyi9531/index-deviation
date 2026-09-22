@@ -176,8 +176,9 @@ function OverviewPage() {
 
       <p className="text-[12px] leading-relaxed text-faint">
         数据截至 <span className="num">{fmtDate(lastDate)}</span>
-        。「同类位置 20 日超额」为历史同类位置的上涨率减去常态上涨率（百分点），
-        ±3pp 内视为与常态无异，定义见
+        。「同类位置 20 日超额」为历史同类位置的上涨率减去常态上涨率（百分点）；
+        着色要过两道门槛：幅度 |超额| ≥ 3pp 且 95% 置信区间不含 0，
+        否则一律视为与常态无异（小样本区间很宽，会因此自动落灰）。定义见
         <Link to="/method" className="mx-0.5 text-muted underline decoration-line hover:text-ink">
           方法与数据
         </Link>

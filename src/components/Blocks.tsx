@@ -203,7 +203,7 @@ export function SummaryStrip({
           value={fmtExcess(analog.excess20)}
           tone={excessToneOf(analog.excess20, analog.excessCi20)}
           size="md"
-          hint={`历史上 200 日偏离度落在当前值 ±1% 内的所有交易日（${fmtInt(analog.sampleDays)} 天 / ${fmtInt(analog.episodes)} 段独立信号），其后 20 日上涨率减去「不设条件」的常态上涨率（${fmtProb(world)}）。同类胜率本身为 ${fmtProb(analog.win20)}——裸胜率的大头是常态漂移，只有超额才有参考价值。着色要过两道门槛：幅度 |超额| ≥ 3pp，**且** 95% 置信区间不含 0（这个幅度分得清方向）；区间按**独立信号段数**算，小样本会因此自动落灰，不拿噪声当优势。${ciText}恒为「上涨」口径。`}
+          hint={`历史上 200 日偏离度落在当前值 ±1% 内的所有交易日（${fmtInt(analog.sampleDays)} 天 / ${fmtInt(analog.episodes)} 段独立信号），其后 20 日上涨率减去「不设条件」的常态上涨率（${fmtProb(world)}）。同类胜率本身为 ${fmtProb(analog.win20)}——裸胜率的大头是常态漂移，只有超额才有参考价值。着色要过两道门槛：幅度 |超额| ≥ 3pp，且 95% 置信区间不含 0（这个幅度分得清方向）；区间按独立信号段数算，小样本会因此自动落灰，不拿噪声当优势。${ciText}恒为「上涨」口径。`}
           sub={
             <>
               同类样本 {fmtInt(analog.sampleDays)} 天

@@ -3,6 +3,10 @@
   "name": "index-deviation-notify",
   "main": "index.ts",
   "compatibility_date": "2026-09-11",
+  // 这个 worker 只有 scheduled handler，没有 fetch —— workers.dev 上那个公开地址
+  // 访问只会返回 500，没有任何用途，所以显式关掉（默认是开的）。
+  // 若以后要加「手动触发一次」的调试端点，再把它打开。
+  "workers_dev": false,
   "observability": {
     "enabled": true
   },
@@ -12,9 +16,9 @@
   "kv_namespaces": [
     {
       "binding": "ALERT_STATE",
-      // 占位 id：本地 dev 用本地模拟 KV，不校验它；真正部署前必须换成
-      // `wrangler kv namespace create ALERT_STATE -c notify/wrangler.jsonc` 返回的 id
-      "id": "00000000000000000000000000000000"
+      // 存「上次的触发状态」，用于只在状态变化时推送。
+      // 2026-09-22 创建于账号 e272e537ba1f48c61e136aac01b11bab（与站点用的 DAILY_DATA 是两个命名空间）
+      "id": "620f9484fe7f444190e995f1f7d047ac"
     }
   ],
   "triggers": {

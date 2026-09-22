@@ -241,7 +241,7 @@ scripts/
   notify-check.mjs   通知 worker 的状态机自检（全程离线，六场景断言）
   notify-stub.mjs    测试桩：模拟 /api/all 与虾推啥的推送端点
 notify/              触发通知 worker（独立部署，不属于站点构建）
-  index.ts           Cron 逻辑：读 /api/all → 状态变化才推送 → 写 KV
+  index.ts           Cron 逻辑：读 /api/all → 状态变化才推送（同一件事最多 2 次）→ 写 KV
   wrangler.jsonc     独立 worker 配置（cron 表达式、ALERT_STATE KV）
   check.mjs            路由冒烟：逐页断言关键内容 + JSON 接口
   weigh.mjs            统计各页可见中文量，防止「越改越啰嗦」
@@ -365,8 +365,15 @@ npm run deploy
 （`@tanstack/react-start/server-entry`），挂不了 `scheduled` handler，
 所以通知走单独一个 worker，只依赖公开接口 `/api/all`。
 
+**运行时间**：每工作日**北京 10:00 与 15:00**（cron `0 2,7 * * 1-5` UTC）。
+只在用户指定的这两个时间点跑 —— 所以盘中触发、当天又收复的情况不会被通知。
+
+**推送策略：同一件事最多推 2 次**。状态变化时推第 1 条；下一个时间点若状态仍未变，
+再推 1 条「再次提醒」（防止第一条被漏看）；之后静默，直到状态再次变化。
+计数存在 KV 的 `pushes`，**状态一变就归零重算**。
+
 ```bash
-# 1. 建 KV（存「上次的触发状态」，用来只在状态变化时推送）
+# 1. 建 KV（存「上次的触发状态 + 已推次数」）
 npx wrangler kv namespace create ALERT_STATE -c notify/wrangler.jsonc
 #    把返回的 id 填进 notify/wrangler.jsonc 的 kv_namespaces[0].id
 
@@ -383,11 +390,14 @@ npx wrangler deploy -c notify/wrangler.jsonc
 所以「推送成功」只代表消息进了队列，**不代表送达** —— 部署后第一次运行的
 「监控已启用」消息是唯一的送达验证。若没收到，先查 `XTUIS_TOKEN`。
 
-本地自检（全程离线，不会真发微信）：
+本地自检（全程离线，不会真发微信，九个场景）：
 
 ```bash
 node .smoke/notify-check.mjs
 ```
+
+想改频率就改 `notify/wrangler.jsonc` 的 `crons`（UTC，+8 得北京时间）与
+`notify/index.ts` 的 `MAX_PUSHES`，然后重新部署。
 
 ---
 

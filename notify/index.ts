@@ -1,7 +1,10 @@
 /**
  * 偏离度看板 · 触发通知 worker
  *
- * 职责只有一个：定时读站点的公开接口 `/api/all`，在**触发状态发生变化**时推送到微信。
+ * 职责只有一个：定时读站点的公开接口 `/api/all`，在触发状态变化时推送到微信。
+ *
+ * 运行时间：**每工作日北京 10:00 与 15:00**（cron `0 2,7 * * 1-5` UTC）——
+ * 只在用户指定的这两个时间点跑，所以盘中触发又当天收复的情况不会被通知。
  *
  * 为什么必须是独立 worker：站点 worker 的 main 是
  * `@tanstack/react-start/server-entry`（框架托管入口，见根 wrangler.jsonc），
@@ -14,8 +17,14 @@
  *    在这里重算一遍就会造出第二套判定（站点 2026-09 刚为同类问题返工过一次：
  *    「触发关注」标记曾同时存在分位口径与阈值口径，两者公开打架）。
  *
- * 2. **只在状态变化时推送。** 每次 cron 都推 = 每天一条重复消息 = 用户屏蔽。
- *    状态存 KV，比对后再决定推不推。
+ * 2. **同一件事最多推 2 次。** 状态变化时推第 1 条；下一个时间点若状态仍未变，再推 1 条
+ *    「再次提醒」（防止第一条被漏看）；之后静默，直到状态再次变化。
+ *    每次 cron 都推 = 每天一条重复消息 = 用户屏蔽；但只推一次又容易被漏看。
+ *    计数存在 KV 的 `pushes`，**状态一变就归零重算** —— 它是「同一件事」的计数，
+ *    不是「今天」的计数。
+ *
+ *    提醒只在「当前确实有指数在水位下」时发（`current.length > 0`）：如果最后一条是
+ *    「已解除」、现在一个都不在水位下，再提醒一次「当前触发 0 个」是纯噪声。
  *
  * 3. ⚠️ **「推送成功」不等于「送达」。** 实测（2026-09-22）：虾推啥对**错误 token**
  *    与**完全不存在**的 token 同样返回 `HTTP 200` + `{"code":200,"message":"Message Queue
@@ -37,6 +46,14 @@
 
 const STATE_KEY = 'alert-state-v1'
 const XTUIS_DEFAULT_ENDPOINT = 'https://wx.xtuis.cn'
+
+/**
+ * 同一件事最多推几次。
+ *
+ * 2 = 变化时一条 + 下一次运行时（若仍未变）再提醒一条。
+ * 调大就是「多提醒几次」，调 1 就回到「只说一次」。
+ */
+const MAX_PUSHES = 2
 
 /**
  * 单次出网请求的超时。
@@ -110,6 +127,11 @@ interface AlertState {
   triggered: string[]
   /** 上次成功推送后写回的 UTC 时刻 */
   updatedAt: string
+  /**
+   * 当前这条「状态变化」已经推送了几次（≤ MAX_PUSHES）。
+   * 状态一变就归零重算，所以它是「同一件事」的计数，不是「今天」的计数。
+   */
+  pushes: number
 }
 
 // ── 格式化：手抄自 src/lib/format.ts（那边是真相来源，改动同步两处）──────────────
@@ -169,7 +191,8 @@ async function readState(env: Env): Promise<AlertState | null> {
   try {
     const parsed = JSON.parse(raw) as AlertState
     if (!Array.isArray(parsed?.triggered)) return null
-    return parsed
+    // 旧格式（没有 pushes）当作 0：升级后的第一次运行应当照常推一条，而不是静默
+    return { ...parsed, pushes: typeof parsed.pushes === 'number' ? parsed.pushes : 0 }
   } catch {
     // KV 里是坏值（手工改过 / 旧格式）：按「无状态」处理，本轮走首次运行分支。
     // 刻意不抛错 —— 抛了就会永远卡在同一个坏值上，连自愈的机会都没有。
@@ -262,6 +285,27 @@ function buildMessage(a: {
   return { text, desp: lines.join('\n').trimEnd() }
 }
 
+/**
+ * 「再次提醒」：状态没变，但上一次推送可能被漏看。
+ *
+ * 刻意不复述「新触发 / 已解除」这种事件措辞 —— 那会让人以为又发生了一次。
+ * 提醒说的是**当前状态**：这些指数现在还在水位下。
+ */
+function buildReminder(a: {
+  siteBase: string
+  current: ApiIndexState[]
+  total: number
+  date: number
+}): { text: string; desp: string } {
+  const text = `偏离度看板 · 再次提醒 · 当前触发 ${a.current.length} 个`
+  const lines: string[] = [`当前触发 ${a.current.length} / ${a.total} 个指数`, '']
+  for (const i of a.current) {
+    lines.push(describe(i), `${a.siteBase}/i/${i.indexId}`, '')
+  }
+  lines.push(`数据 ${fmtDate(a.date)}`)
+  return { text, desp: lines.join('\n').trimEnd() }
+}
+
 // ── 主流程 ─────────────────────────────────────────────────────────────
 
 async function runOnce(env: Env): Promise<void> {
@@ -275,33 +319,52 @@ async function runOnce(env: Env): Promise<void> {
   const newly = current.filter((i) => !prevIds.has(i.indexId))
   const releasedIds = [...prevIds].filter((id) => !currentIds.has(id))
 
-  if (!firstRun && newly.length === 0 && releasedIds.length === 0) {
+  // 状态变了就重新计数；没变就沿用上次的次数
+  const changed = firstRun || newly.length > 0 || releasedIds.length > 0
+  const pushes = changed ? 0 : (prev?.pushes ?? 0)
+  const remaining = MAX_PUSHES - pushes
+
+  if (!changed && remaining <= 0) {
     console.log(
-      `[notify] 状态未变（触发 ${currentIds.size}/${payload.indices.length}），不推送`,
+      `[notify] 状态未变且已推 ${pushes} 次（上限 ${MAX_PUSHES}），静默（当前触发 ${currentIds.size}/${payload.indices.length}）`,
     )
+    return
+  }
+  // 最后一条是「已解除」、现在一个都不在水位下时，再提醒一次「当前触发 0 个」是纯噪声
+  if (!changed && current.length === 0) {
+    console.log('[notify] 状态未变且当前无触发，不提醒')
     return
   }
 
   const byId = new Map(payload.indices.map((i) => [i.indexId, i]))
-  const { text, desp } = buildMessage({
-    siteBase: env.SITE_BASE,
-    firstRun,
-    highlight: firstRun ? current : newly,
-    releasedIds,
-    byId,
-    triggeredCount: currentIds.size,
-    total: payload.indices.length,
-    date: payload.indices[0]?.date ?? 0,
-  })
+  const date = payload.indices[0]?.date ?? 0
+  const { text, desp } = changed
+    ? buildMessage({
+        siteBase: env.SITE_BASE,
+        firstRun,
+        highlight: firstRun ? current : newly,
+        releasedIds,
+        byId,
+        triggeredCount: currentIds.size,
+        total: payload.indices.length,
+        date,
+      })
+    : buildReminder({
+        siteBase: env.SITE_BASE,
+        current,
+        total: payload.indices.length,
+        date,
+      })
 
   // 顺序不能反：先推、后写 KV。push 抛错时 KV 保持旧值，下次 cron 重试同一批变化。
   await push(env, text, desp)
   await writeState(env, {
     triggered: [...currentIds].sort(),
     updatedAt: new Date().toISOString(),
+    pushes: pushes + 1,
   })
   console.log(
-    `[notify] 已投递：${text}｜触发 ${currentIds.size} 个：${[...currentIds].sort().join(',') || '无'}`,
+    `[notify] 已投递（第 ${pushes + 1}/${MAX_PUSHES} 次）：${text}｜触发 ${currentIds.size} 个：${[...currentIds].sort().join(',') || '无'}`,
   )
 }
 

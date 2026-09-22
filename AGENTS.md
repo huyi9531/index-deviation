@@ -59,7 +59,7 @@ notify/                 ★ 独立的触发通知 worker（不属于站点构建
 | `node scripts/verify.mjs --base=<url>` | 从 CSV 独立复算并与 `/api/:id` 对拍 |
 | `node .smoke/calibrate.mjs` | 行动水位标定（**只读**，不写 registry）：默认出报告，`--check` 与 registry 对拍，`--grade-current` 给现有值定级，`--scenarios` 换门槛看剩多少格 |
 | `node .smoke/contrast.mjs` | 「偏离度 vs 等频纯跌幅」对照表（`/method` 的 03.5 小节由它生成，改数据后重跑并更新那张静态表） |
-| `node .smoke/notify-check.mjs` | 通知 worker 状态机自检（**全程离线**，六场景断言，约 40s） |
+| `node .smoke/notify-check.mjs` | 通知 worker 状态机自检（**全程离线**，九场景断言，约 60s） |
 | `wrangler deploy -c notify/wrangler.jsonc` | 部署通知 worker（独立于站点，见架构第 15 条） |
 
 沙箱环境注意：本机 AI 会话里 `npm run` 系列可能触发 wsl.exe 被沙箱拦截报
@@ -338,15 +338,23 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
 
     五条不能改的约束（细节与理由写在 `notify/index.ts` 文件头）：
     ①「是否触发」直接用接口的 `actionable`，**不许在 notify 里重算** —— 那会造出
-    第二套判定，站点刚为同类问题返工过；②只在状态变化时推，否则等于每天发重复消息；
+    第二套判定，站点刚为同类问题返工过；②**同一件事最多推 2 次** —— 状态变化时推第 1 条，
+    下一个时间点若仍未变再推 1 条「再次提醒」，之后静默；计数存 KV 的 `pushes`，
+    **状态一变就归零重算**（它是「同一件事」的计数，不是「今天」的计数）；
     ③**「推送成功」≠「送达」**：虾推啥对错误 token 也返回 `HTTP 200 + code 200`
     （2026-09-22 实测，连完全瞎编的 token 也一样），所以能发现的失败只有
     网络层异常 / 非 200 / 响应 code ≠ 200；④先推、后写 KV —— 顺序反了的话，
     一次网络抖动就会把「新触发」记成已通知，通知永久丢失；⑤所有出网请求必须带
     `AbortSignal.timeout` —— 实测网络挂起时 `fetch` 会一直挂着，整个 cron 卡死且毫无日志。
 
+    另一个已定的行为：**提醒只在「当前确实有指数在水位下」时发** —— 最后一条若是
+    「已解除」、现在一个都不在，再提醒一次「当前触发 0 个」是纯噪声。
+
+    改频率：`wrangler.jsonc` 的 `crons`（UTC，+8 得北京时间）+ `index.ts` 的
+    `MAX_PUSHES`，然后重新部署。
+
     自检：`node .smoke/notify-check.mjs`（全程离线，不发真微信，可重复跑）。
-    改通知逻辑后必跑；改文案也要跑，它断言了六种状态迁移。
+    改通知逻辑后必跑；改文案也要跑，它断言了九种状态迁移。
 
 ### 新增一个指数（最短路径）
 

@@ -209,6 +209,13 @@ export function SummaryStrip({
               同类样本 {fmtInt(analog.sampleDays)} 天
               <span className="mx-1 text-line-strong">·</span>
               {fmtInt(analog.episodes)} 段独立信号
+              <span className="mx-1 text-line-strong">·</span>
+              {/* 尾部风险：胜率与超额都只是平均值，用户真正会问的是「万一我是那 3 次」。
+                  这个字段算了很久一直没渲染（worst60 在 queries.ts 里赋值、全仓无人读）。
+                  ⚠️ worst60 是**小数**（-0.2 = -20%），fmtPct 收的是百分数 ——
+                  必须 ×100，否则页面会显示成 -0.20%（错 100 倍，2026-09 差点就这么上线）。
+                  ThresholdTable.tsx 里 `fmtPct(stat.worst * 100)` 是同一个约定。 */}
+              最差 60 日 {fmtPct(analog.worst60 * 100)}
             </>
           }
         />

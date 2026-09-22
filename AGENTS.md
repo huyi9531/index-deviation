@@ -25,9 +25,9 @@ src/
                         neighborhoodStats（同类位置统计）
     queries.ts          载荷拼装（同构）+ activeErasFor / buildOverviewRow
     search.ts           各路由共享的 zod 搜索参数定义
-    format.ts           数字/日期/百分比/超额格式化（fmtExcess 等）
     service.ts          serverFn 层：缓存 + CACHE_VERSION + alertState
     source.server.ts    取数（fetchYahoo/fetchEastmoney 按派发）+ 四级兜底（内存 → 平台缓存 → KV → 内置快照）
+  lib/format.ts         数字/日期/百分比/超额格式化（fmtExcess 等）—— 注意在 lib/ 下，不在 lib/indices/
   routes/               文件路由：/ 总览、/i/$indexId 详情、/stats/$indexId 历史证据、
                         /method 说明、/api/$indexId JSON（indexId 可为 all）
   components/           ui.tsx（Card/Metric/Tag/Segmented/Gauge 等基础件）+ 图表 + 表格
@@ -38,6 +38,8 @@ scripts/
   verify.mjs            独立复算 + 与 /api 对拍（无应用代码依赖；支持 --base=<url>）
 .smoke/                 开发自检脚本（不入部署）：check/overflow/shots/weigh/
                         check-backfill/calibrate（行动水位标定工具）/inspect 等
+notify/                 ★ 独立的触发通知 worker（不属于站点构建）：index.ts + wrangler.jsonc，
+                        配套 .smoke/notify-check.mjs（自检）与 .smoke/notify-stub.mjs（测试桩）
 ```
 
 分层规则：`series.ts`/`stats.ts`/`queries.ts` 必须保持同构（无 fetch/缓存）；
@@ -56,6 +58,8 @@ scripts/
 | `node .smoke/overflow.mjs <path> [width]` | 窄屏横向溢出检查（headless Chrome，默认 390px） |
 | `node scripts/verify.mjs --base=<url>` | 从 CSV 独立复算并与 `/api/:id` 对拍 |
 | `node .smoke/calibrate.mjs` | 全量重算各指数行动水位（换标的/改标定规则后必跑） |
+| `node .smoke/notify-check.mjs` | 通知 worker 状态机自检（**全程离线**，六场景断言，约 40s） |
+| `wrangler deploy -c notify/wrangler.jsonc` | 部署通知 worker（独立于站点，见架构第 15 条） |
 
 沙箱环境注意：本机 AI 会话里 `npm run` 系列可能触发 wsl.exe 被沙箱拦截报
 `npm_path` 相关错误——绕开方式是 node 直调：
@@ -127,10 +131,16 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
    serverFn 内用 `await import('./source.server')` 动态引入，客户端包永远不含它。
    纯计算放同构模块，不要为了省事把取数逻辑写进组件或 queries。
 
-3. **缓存键 = `CACHE_VERSION` + 业务键，三处同步递增**。改统计口径或 payload 结构时：
-   `service.ts` 的 `CACHE_VERSION`（现值 9）、`source.server.ts` 里 Cache API 的
-   URL 版本段（daily-v3、payload/v7）。漏掉任何一处，TTL 20 分钟内旧 payload 会
-   一直被命中，表现为「修复没生效」。
+3. **三个版本号各有各的作用域，别一律「同步递增」**。改统计口径或载荷结构时，
+   该动的是前两个，**不是** `daily-v3`：
+
+   | 位置 | 缓存的东西 | 什么时候递增 |
+   | --- | --- | --- |
+   | `service.ts` 的 `CACHE_VERSION`（现值 10） | 进程内 `bundles`（序列 + meta） | 改统计口径 / 载荷结构 |
+   | `source.server.ts` 的 `payload/vN`（现值 v8） | Cache API 里的计算结果 | 同上；只改 action 水位这类「结构没变但值变了」也要 |
+   | `source.server.ts` 的 `daily-vN`（现值 v3） | Cache API 里的**原始 CSV 数据** | **只有 DailyData 结构或数据口径变了才动** |
+
+   漏掉前两个，TTL 20 分钟内旧 payload 会一直被命中，表现为「修复没生效」。
 
    注：新增指数本身会自然产生新 key（payload 是按 `indexId + 末日 + source` 分桶的），
    但 `CACHE_VERSION` 仍要递增 —— 它同时是总览页与详情页共用的缓存前缀，
@@ -273,7 +283,9 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
     两个坑：①KV 写只有 **lastDate 推进时**才真写（免费额度 1000 写/天，不去重
     会到 504 写/天）；②`cloudflare:workers` 的 import 必须带 `@ts-ignore` ——
     模块声明来自 `wrangler types` 生成的 `worker-configuration.d.ts`，而它在
-    `.gitignore` 里，干净仓库没有它会让 `tsc --noEmit` 挂掉。
+    `.gitignore` 里。（2026-09-22 复核：把该文件移走后 `tsc --noEmit` 实测零错误，
+    所以「干净仓库会挂」这句现在不成立；但新增 `*.server.ts` 时仍别依赖那个文件里的
+    类型 —— `notify/index.ts` 为此手写了 KV 的结构类型，照那个写法办。）
     改 payload 结构或 `source` 枚举时，缓存版本三处同步（见上一条）。
 
 14. **「走势 ↗」是站外外链，用新标签页打开 —— 不要改成新窗口**。URL 存在 `registry.ts` 的
@@ -296,6 +308,26 @@ loader JSON——第三块是未排序原始数据属正常）；按文档顺序
     另一个坑：总览移动端卡片的外链必须是卡片 `<Link>` 的**兄弟节点**，
     不能嵌进去（`<a>` 套 `<a>` 是非法 HTML，hydration 会报错）——
     所以卡片样式留在外层 `<div>`，别把两个链接合并回一个。
+
+15. **触发通知是独立的 Cron worker，不是站点的一部分**。`notify/`（`index.ts` +
+    `wrangler.jsonc`）跑在自己的 worker `index-deviation-notify` 上，每工作日
+    UTC 01:00（北京 09:00）读一次 `/api/all`，**只在触发状态发生变化时**推送到微信。
+
+    为什么必须独立：站点 worker 的 `main` 是 `@tanstack/react-start/server-entry`
+    （框架托管入口），没有地方挂 `scheduled` handler。所以它只依赖一个公开 HTTP 接口，
+    不 import 站点任何代码（也解析不了 `~/*` 别名），三个格式化函数因此手抄了一份。
+
+    五条不能改的约束（细节与理由写在 `notify/index.ts` 文件头）：
+    ①「是否触发」直接用接口的 `actionable`，**不许在 notify 里重算** —— 那会造出
+    第二套判定，站点刚为同类问题返工过；②只在状态变化时推，否则等于每天发重复消息；
+    ③**「推送成功」≠「送达」**：虾推啥对错误 token 也返回 `HTTP 200 + code 200`
+    （2026-09-22 实测，连完全瞎编的 token 也一样），所以能发现的失败只有
+    网络层异常 / 非 200 / 响应 code ≠ 200；④先推、后写 KV —— 顺序反了的话，
+    一次网络抖动就会把「新触发」记成已通知，通知永久丢失；⑤所有出网请求必须带
+    `AbortSignal.timeout` —— 实测网络挂起时 `fetch` 会一直挂着，整个 cron 卡死且毫无日志。
+
+    自检：`node .smoke/notify-check.mjs`（全程离线，不发真微信，可重复跑）。
+    改通知逻辑后必跑；改文案也要跑，它断言了六种状态迁移。
 
 ### 新增一个指数（最短路径）
 

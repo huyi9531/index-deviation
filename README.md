@@ -238,6 +238,11 @@ scripts/
   build-seed.mjs     抓取全量历史 → 刷新离线快照（支持指定指数，双数据源 + 重试）
   verify.mjs         独立复算脚本：重算 7 个指数的关键统计量，再跟 /api 对拍
 .smoke/              本地验证脚本（仅开发用）
+  notify-check.mjs   通知 worker 的状态机自检（全程离线，六场景断言）
+  notify-stub.mjs    测试桩：模拟 /api/all 与虾推啥的推送端点
+notify/              触发通知 worker（独立部署，不属于站点构建）
+  index.ts           Cron 逻辑：读 /api/all → 状态变化才推送 → 写 KV
+  wrangler.jsonc     独立 worker 配置（cron 表达式、ALERT_STATE KV）
   check.mjs            路由冒烟：逐页断言关键内容 + JSON 接口
   weigh.mjs            统计各页可见中文量，防止「越改越啰嗦」
   overflow.mjs         找出窄屏下超宽的元素
@@ -344,7 +349,7 @@ npm run deploy
 
 ```jsonc
 {
-  "name": "sp500-deviation",
+  "name": "index-deviation",
   "compatibility_date": "2026-09-11",
   "compatibility_flags": ["nodejs_compat"],
   "main": "@tanstack/react-start/server-entry"
@@ -353,6 +358,36 @@ npm run deploy
 
 要在推送到 GitHub 后自动部署（Workers Builds / GitHub Actions），
 可直接用 `tanstack-start-cloudflare-cicd` 那套流程。
+
+### 触发通知 worker（独立部署）
+
+`notify/` 是一个**独立的** worker：站点 worker 的 `main` 是框架托管入口
+（`@tanstack/react-start/server-entry`），挂不了 `scheduled` handler，
+所以通知走单独一个 worker，只依赖公开接口 `/api/all`。
+
+```bash
+# 1. 建 KV（存「上次的触发状态」，用来只在状态变化时推送）
+npx wrangler kv namespace create ALERT_STATE -c notify/wrangler.jsonc
+#    把返回的 id 填进 notify/wrangler.jsonc 的 kv_namespaces[0].id
+
+# 2. 存推送 token
+npx wrangler secret put XTUIS_TOKEN -c notify/wrangler.jsonc
+
+# 3. 部署
+npx wrangler deploy -c notify/wrangler.jsonc
+```
+
+推送走虾推啥：`GET https://wx.xtuis.cn/<token>.send?text=&desp=`。
+
+⚠️ 实测它**对错误 token 也返回 `HTTP 200 + code 200`**（连完全瞎编的 token 一样），
+所以「推送成功」只代表消息进了队列，**不代表送达** —— 部署后第一次运行的
+「监控已启用」消息是唯一的送达验证。若没收到，先查 `XTUIS_TOKEN`。
+
+本地自检（全程离线，不会真发微信）：
+
+```bash
+node .smoke/notify-check.mjs
+```
 
 ---
 
@@ -364,6 +399,7 @@ node .smoke/check.mjs            # 逐个路由断言内容 + JSON 接口
 node .smoke/weigh.mjs            # 各页可见中文量（防止内容膨胀）
 node .smoke/shots.mjs            # 截图 + 横向溢出 + 控制台报错（需 Chrome）
 node .smoke/check-backfill.mjs   # 回溯段接缝检验
+node .smoke/notify-check.mjs     # 通知 worker 状态机自检（离线，不发真消息）
 node scripts/verify.mjs          # 独立复算 7 个指数 + 与 /api 对拍
 node scripts/verify.mjs --offline           # 服务没起时只做本地复算
 node scripts/verify.mjs --base=http://localhost:4173

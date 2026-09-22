@@ -1,0 +1,25 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "index-deviation-notify",
+  "main": "index.ts",
+  "compatibility_date": "2026-09-11",
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "SITE_BASE": "https://index.aiconductor.top"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "ALERT_STATE",
+      // 占位 id：本地 dev 用本地模拟 KV，不校验它；真正部署前必须换成
+      // `wrangler kv namespace create ALERT_STATE -c notify/wrangler.jsonc` 返回的 id
+      "id": "00000000000000000000000000000000"
+    }
+  ],
+  "triggers": {
+    // UTC 01:00 = 北京 09:00，工作日。收盘后 A 股/港股当日数据已定，
+    // 美股用的是前一夜收盘 —— 站点自己的缓存 TTL 是 20 分钟，不冲突。
+    "crons": ["0 1 * * 1-5"]
+  }
+}

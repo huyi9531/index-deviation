@@ -13,6 +13,7 @@ worker-configuration.d.ts
 .DS_Store
 .claude
 .smoke/shots
+.smoke/_notify-stub
 .smoke/*.html
 
 # 个股 / 成分股专项研究的抓取数据与生成物（可重跑脚本重建，体积大）

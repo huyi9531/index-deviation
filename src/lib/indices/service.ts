@@ -56,7 +56,9 @@ interface Bundle {
 // v10: 行动水位补了三格（nasdaq dev60 -10、hs300 / a500 dev60 -3）—— payload 结构没变，
 //      但 status.toThreshold / waterTriggered / eraSummary 的**值**变了，不递增会在这 20 分钟
 //      的 TTL 里继续返回旧的 null，看起来像「改了没生效」
-const CACHE_VERSION = 10
+// v11: 同类位置改 episode 级口径（每段独立信号取首次触达日）并新增 95% 置信区间；
+//      OverviewRow 的 analogSamples 拆成 analogDays / analogEpisodes，HorizonStat 加 wins/n
+const CACHE_VERSION = 11
 /** 载荷缓存时长（秒）。日线一天更新一次，20 分钟足够 */
 const TTL = 60 * 20
 

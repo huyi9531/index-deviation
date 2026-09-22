@@ -207,6 +207,10 @@ export interface HorizonStat {
   days: number
   /** 胜率 0~1。抄底 = 收益>0 的比例；逃顶 = 收益<0 的比例 */
   winRate: number
+  /** 胜数与观测数。给置信区间用 —— Wilson / Newcombe 需要原始计数，
+   *  不要用 winRate × n 反推（浮点误差 + 看代码的人得自己反推一遍） */
+  wins: number
+  n: number
   avg: number
   median: number
   /** 最差 / 最好单次收益 */
@@ -374,11 +378,24 @@ export interface ChartMarks {
 /** 「同类位置」答案：历史上偏离度落在当前值 ±1% 内的那些日子，之后表现如何 */
 export interface AnalogAnswer {
   center: number
+  /** 落在当前值 ±1% 内的**交易日**数（样本量参考，与 episodes 是两个口径） */
   sampleDays: number
+  /** 去重叠后的独立信号次数（每段连续区间算一次） */
   episodes: number
+  /**
+   * 同类位置 20 日胜率（episode 级：每段独立信号取**首次触达日**）。
+   * 不用「带内所有交易日加权」：那样一次 2008 年式的长暴跌会独占权重，
+   * 而且点估计与置信区间会落在两套不同的样本上。
+   */
   win20: number
   /** win20 − 常态 20 日胜率（pp）。样本不足 30 天或无常态参照时为 null，如实不给数 */
   excess20: number | null
+  /**
+   * excess20 的 95% 置信区间（pp，Newcombe）。
+   * **着色按它判定，不按点估计** —— 见 `lib/format.ts` 的 `excessToneOf`。
+   * 小样本时区间很宽，于是自动落到「与常态无异」，而不是拿噪声当优势。
+   */
+  excessCi20: [number, number] | null
   avg20: number
   median20: number
   win60: number
@@ -470,11 +487,17 @@ export interface OverviewRow {
   dev200: number
   /**
    * 同类位置 20 日超额（pp）= 同类 20 日上涨率 − 常态上涨率。
-   * 才是「这个位置有没有优势」的直接回答；|超额| 在 3pp 内视为与常态无异。
+   * 才是「这个位置有没有优势」的直接回答。
+   * ⚠️ **着色看 `analogExcessCi`，不看这个点估计** —— 见 `lib/format.ts` 的 `excessToneOf`。
    * 样本不足 30 天或无常态参照时为 null，如实不给数。
    */
   analogExcess: number | null
-  analogSamples: number
+  /** `analogExcess` 的 95% 置信区间（pp，Newcombe）。null = 样本不足，不给数 */
+  analogExcessCi: [number, number] | null
+  /** 同类位置落在带内的**交易日**数（样本量参考） */
+  analogDays: number
+  /** 去重叠后的独立信号次数（与标定门槛同口径） */
+  analogEpisodes: number
   /**
    * 距离该口径的「行动水位」还需下跌多少（%，价格口径）。已进入水位时为 0，
    * 该口径没有标定水位时为 null。总览页的排序用这一对值算「离动手还有多远」。

@@ -92,6 +92,8 @@ function summarize(
       return {
         days,
         winRate: Number.NaN,
+        wins: 0,
+        n: 0,
         avg: 0,
         median: 0,
         worst: 0,
@@ -112,6 +114,8 @@ function summarize(
     return {
       days,
       winRate: wins / rets.length,
+      wins,
+      n: rets.length,
       avg: sum / rets.length,
       median: median(rets),
       worst,
@@ -173,6 +177,13 @@ export function thresholdTable(
  * 注意：这里固定用 'below' 口径，也就是胜率恒为「上涨的比例」。
  * 不管当前偏离度是正还是负，卡片上的「上涨概率」都指同一件事，
  * 不会因为符号而悄悄变成「下跌概率」。
+ *
+ * 返回值有两套样本，回答的是两个不同的问题，**别混用**：
+ *   `row.horizons` —— 落在带内的**所有交易日**加权（time-weighted），
+ *     即「随机挑一天，之后上涨的概率」。阈值全表用的就是这个口径。
+ *   `firstTouch` —— 每段连续区间的**首个**交易日（episode 级），
+ *     即「随机挑一次机会，之后上涨的概率」。总览/详情的「同类位置超额」用它，
+ *     因为它与标定用的「独立信号」同源，且不会被一次 2008 年式的长暴跌独占权重。
  */
 export function neighborhoodStats(
   s: ComputedSeries,
@@ -180,34 +191,101 @@ export function neighborhoodStats(
   era: Era,
   center: number,
   width = 1,
-): { row: ThresholdRow; indices: number[] } {
+): { row: ThresholdRow; indices: number[]; firstTouch: number[] } {
   const w = eraWindow(s, era)
   const dev = s[key]
   const indices: number[] = []
   for (let i = w.from; i < w.to; i++) {
     if (Math.abs(dev[i] - center) <= width) indices.push(i)
   }
+  const firstTouch = episodeFirstTouch(indices)
   return {
     indices,
+    firstTouch,
     row: {
       threshold: center,
       direction: 'below',
       sampleDays: indices.length,
-      episodes: countEpisodes(indices),
+      episodes: firstTouch.length,
       triggeredNow: true,
       horizons: summarize(s, indices, 'below'),
     },
   }
 }
 
-function countEpisodes(indices: number[]): number {
-  let count = 0
+/**
+ * 升序下标数组 → 每段连续区间的**首个**下标。
+ *
+ * 「连续满足阈值的一段时间算一次机会」是全站统一的「独立信号」定义：
+ * 阈值扫描的 `episodes`、行动水位标定的 ≥12 段门槛、同类位置的 episode 级胜率
+ * 用的都是它。同一次下跌里连着 30 天低于阈值，只能算 1 次机会。
+ */
+export function episodeFirstTouch(indices: number[]): number[] {
+  const out: number[] = []
   let prev = Number.NaN
   for (const i of indices) {
-    if (i !== prev + 1) count += 1
+    if (i !== prev + 1) out.push(i)
     prev = i
   }
-  return count
+  return out
+}
+
+/**
+ * episode 级前瞻统计：每段独立信号只取**首个**交易日作为一次观测。
+ *
+ * 与 `summarize(s, indices, ...)`（带内所有交易日加权）是两套口径，别混用：
+ * 前者回答「随机挑一次机会，之后涨的概率」，后者回答「随机挑一天」。
+ * 「同类位置超额」用前者 —— 它与标定用的「独立信号」同源。
+ */
+export function summarizeEpisodes(
+  s: ComputedSeries,
+  indices: number[],
+  direction: 'below' | 'above' = 'below',
+): HorizonStat[] {
+  return summarize(s, episodeFirstTouch(indices), direction)
+}
+
+/**
+ * Wilson 得分区间（比例），返回 0~1。
+ *
+ * 比正态近似好在小样本与极端比例下仍不出界（不会给出小于 0 或大于 1 的区间）——
+ * 本产品的指数都是几十到几百段信号，小样本是常态，正态近似在这里会给出负的胜率下界。
+ */
+export function wilsonInterval(wins: number, n: number, z = 1.96): [number, number] {
+  if (n <= 0) return [Number.NaN, Number.NaN]
+  const p = wins / n
+  const z2 = z * z
+  const denom = 1 + z2 / n
+  const center = (p + z2 / (2 * n)) / denom
+  const half = (z * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n))) / denom
+  return [Math.max(0, center - half), Math.min(1, center + half)]
+}
+
+/**
+ * 两个独立比例之差的 Newcombe 混合区间（method 10，无连续性校正），返回比例单位。
+ *
+ * 就是「同类位置胜率 − 常态胜率」的置信区间。选它而不是正态近似的原因同上：
+ * 小样本下它不会给出荒谬的区间；而且它是解析式 —— 确定性、无需随机数，
+ * 符合 SSR 与缓存的要求（bootstrap 在这里不可取）。
+ *
+ * 实现取自 Newcombe RG (1998)「Interval estimation for the difference between
+ * independent proportions」的方法 10：先各自取 Wilson 区间，再平方相加。
+ */
+export function newcombeDiff(
+  wins1: number,
+  n1: number,
+  wins0: number,
+  n0: number,
+  z = 1.96,
+): [number, number] {
+  if (n1 <= 0 || n0 <= 0) return [Number.NaN, Number.NaN]
+  const p1 = wins1 / n1
+  const p0 = wins0 / n0
+  const [l1, u1] = wilsonInterval(wins1, n1, z)
+  const [l0, u0] = wilsonInterval(wins0, n0, z)
+  const lower = p1 - p0 - Math.sqrt((p1 - l1) ** 2 + (u0 - p0) ** 2)
+  const upper = p1 - p0 + Math.sqrt((u1 - p1) ** 2 + (p0 - l0) ** 2)
+  return [lower, upper]
 }
 
 /** 历史极值 + 之后的复归速度 */

@@ -1,4 +1,13 @@
-import { fmtDate, fmtDateTime, fmtExcess, fmtInt, fmtPct, fmtPoint, fmtProb } from '~/lib/format'
+import {
+  excessToneOf,
+  fmtDate,
+  fmtDateTime,
+  fmtExcess,
+  fmtInt,
+  fmtPct,
+  fmtPoint,
+  fmtProb,
+} from '~/lib/format'
 import { currencySymbol } from '~/lib/indices/registry'
 import { bindingLevel } from '~/lib/indices/stats'
 import type {
@@ -94,6 +103,10 @@ export function SummaryStrip({
   const world = baseline.find((b) => b.days === 20)?.winRate ?? Number.NaN
   const noLevel = bind === null
   const inLevel = bind !== null && bind.move === 0
+  // 置信区间既用于着色，也直接写给用户看 —— 不确定性本来就该可见，不该只藏在颜色里
+  const ciText = analog.excessCi20
+    ? `当前 95% 置信区间 ${fmtExcess(analog.excessCi20[0])} ~ ${fmtExcess(analog.excessCi20[1])}。`
+    : ''
 
   const moveText = noLevel
     ? '无水位'
@@ -174,15 +187,9 @@ export function SummaryStrip({
         <Metric
           label="同类位置 20 日超额"
           value={fmtExcess(analog.excess20)}
-          tone={
-            analog.excess20 === null || Math.abs(analog.excess20) < 3
-              ? 'neutral'
-              : analog.excess20 > 0
-                ? 'up'
-                : 'down'
-          }
+          tone={excessToneOf(analog.excess20, analog.excessCi20)}
           size="md"
-          hint={`历史上 200 日偏离度落在当前值 ±1% 内的所有交易日，其后 20 日上涨率减去「不设条件」的常态上涨率（${fmtProb(world)}）。同类胜率本身为 ${fmtProb(analog.win20)}——裸胜率的大头是常态漂移，只有超额才有参考价值；|超额| 在 3pp 内视为与常态无异（与水位标定规则一致）。恒为「上涨」口径。`}
+          hint={`历史上 200 日偏离度落在当前值 ±1% 内的每次独立信号（每段连续区间取首次触达日，共 ${fmtInt(analog.episodes)} 段），其后 20 日上涨率减去「不设条件」的常态上涨率（${fmtProb(world)}）。同类胜率本身为 ${fmtProb(analog.win20)}——裸胜率的大头是常态漂移，只有超额才有参考价值。着色要过两道门槛：幅度 |超额| ≥ 3pp，**且** 95% 置信区间不含 0（这个幅度分得清方向）。小样本的区间很宽，会因此自动落灰，不拿噪声当优势。${ciText}恒为「上涨」口径。`}
           sub={
             <>
               同类样本 {fmtInt(analog.sampleDays)} 天

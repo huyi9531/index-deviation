@@ -419,5 +419,58 @@ const INDEX_NAMES = [
   )
 }
 
+/**
+ * 交叉断言（同类位置着色）：颜色必须等于「幅度 ≥ 3pp 且区间不含 0」这条规则本身。
+ *
+ * 为什么值得钉：这个数字的着色曾经只看点估计，而小样本指数（科创50 只有 59 个交易日）
+ * 的当前值挪动 ±0.2% 就能让点估计在 −0.0pp 与 +6.0pp 之间跳，正好横跨 3pp 分界 ——
+ * 颜色完全由噪声决定。规则现在收在 `lib/format.ts` 的 `excessToneOf()`，页面把
+ * （点估计, 区间, 色档）三个值以 data-* 属性渲染出来，这里**独立复算规则**并比对。
+ *
+ * 状态无关：不依赖当天涨跌，只断言「页面渲出来的三者彼此自洽」。
+ * 按标签逐个匹配、属性名各自提取，不依赖属性顺序（React 不保证）。
+ */
+{
+  const html = await (await fetch(`${B}/`)).text()
+  const expectTone = (excess, ci) => {
+    if (excess === null || !Number.isFinite(excess)) return 'neutral'
+    if (!ci || !Number.isFinite(ci[0]) || !Number.isFinite(ci[1])) return 'neutral'
+    if (Math.abs(excess) < 3) return 'neutral'
+    if (ci[0] > 0) return 'up'
+    if (ci[1] < 0) return 'down'
+    return 'neutral'
+  }
+  const problems = []
+  let seen = 0
+  for (const tag of html.matchAll(/<[^>]*data-excess-tone="[^"]*"[^>]*>/g)) {
+    const t = tag[0]
+    const exRaw = /data-excess="([^"]*)"/.exec(t)?.[1]
+    const ciRaw = /data-excess-ci="([^"]*)"/.exec(t)?.[1]
+    const tone = /data-excess-tone="([^"]*)"/.exec(t)?.[1]
+    if (exRaw === undefined || ciRaw === undefined) {
+      problems.push('某个元素只带 data-excess-tone、缺少另两个属性')
+      continue
+    }
+    seen += 1
+    const ex = exRaw === 'none' ? null : Number(exRaw)
+    const ci = ciRaw === 'none' ? null : ciRaw.split(' ').map(Number)
+    const want = expectTone(ex, ci)
+    if (tone !== want) {
+      problems.push(`超额 ${exRaw} / 区间 ${ciRaw} → 页面给了 ${tone}，规则应为 ${want}`)
+    }
+  }
+  if (seen === 0) problems.push('总览页没找到任何 data-excess 属性 —— 哨兵已失效，检查渲染')
+  const ok = problems.length === 0
+  if (!ok) bad++
+  console.log(
+    (ok ? 'OK  ' : 'FAIL') +
+      '  ' +
+      '同类位置着色'.padEnd(14) +
+      (ok
+        ? ` ${seen} 处渲染（桌面 + 移动）的色档均等于「|超额|≥3pp 且区间不含 0」`
+        : ' ' + problems.join('；')),
+  )
+}
+
 console.log(bad === 0 ? '\n全部通过 ✓' : `\n有 ${bad} 项未通过 ✗`)
 process.exit(bad === 0 ? 0 : 1)

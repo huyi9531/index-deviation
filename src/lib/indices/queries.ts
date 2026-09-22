@@ -15,7 +15,9 @@ import {
   eraWindow,
   extremePoints,
   neighborhoodStats,
+  newcombeDiff,
   revertStats,
+  summarizeEpisodes,
   thresholdRow,
   thresholdTable,
 } from './stats'
@@ -141,23 +143,40 @@ const ANALOG_MIN_SAMPLES = 30
 
 function analog(s: ComputedSeries, key: MaKey, era: Era): AnalogAnswer {
   const center = s[key][s.dates.length - 1]
-  const { row } = neighborhoodStats(s, key, era, center, 1)
-  const h20 = row.horizons.find((x) => x.days === 20)
-  const h60 = row.horizons.find((x) => x.days === 60)
-  const base20 = baselineRates(s, eraWindow(s, era)).find((b) => b.days === 20)?.winRate
+  const { indices, firstTouch } = neighborhoodStats(s, key, era, center, 1)
+
+  // episode 级口径：每段独立信号取首次触达日（与标定用的「独立信号」同源）。
+  // 不用带内所有交易日加权 —— 那样一次 2008 年式的长暴跌会独占权重。
+  const ep = summarizeEpisodes(s, indices)
+  const h20 = ep.find((x) => x.days === 20)
+  const h60 = ep.find((x) => x.days === 60)
+
+  const window = eraWindow(s, era)
+  const base = baselineRates(s, window).find((b) => b.days === 20)
+  const base20 = base?.winRate
+  // 常态侧的「独立观测数」按非重叠 20 日块折算：日收益的 20 日前瞻值彼此高度重叠，
+  // 直接拿交易日数当 n 会把基线的不确定性压得几乎为零，区间因此假窄。
+  const n0 = Math.max(1, Math.floor((window.to - window.from) / 20))
+  const wins0 = Number.isFinite(base20) ? Math.round((base20 as number) * n0) : 0
+
   const win20 = h20?.winRate ?? Number.NaN
-  const excess20 =
-    Number.isFinite(win20) &&
-    Number.isFinite(base20 ?? Number.NaN) &&
-    row.sampleDays >= ANALOG_MIN_SAMPLES
-      ? round2((win20 - (base20 as number)) * 100)
+  const usable =
+    Number.isFinite(win20) && Number.isFinite(base20) && indices.length >= ANALOG_MIN_SAMPLES
+
+  const excess20 = usable ? round2((win20 - (base20 as number)) * 100) : null
+  const ci = usable ? newcombeDiff(h20?.wins ?? 0, h20?.n ?? 0, wins0, n0) : null
+  const excessCi20: [number, number] | null =
+    ci && Number.isFinite(ci[0]) && Number.isFinite(ci[1])
+      ? [round2(ci[0] * 100), round2(ci[1] * 100)]
       : null
+
   return {
     center: round2(center),
-    sampleDays: row.sampleDays,
-    episodes: row.episodes,
+    sampleDays: indices.length,
+    episodes: firstTouch.length,
     win20,
     excess20,
+    excessCi20,
     avg20: h20?.avg ?? 0,
     median20: h20?.median ?? 0,
     win60: h60?.winRate ?? Number.NaN,
@@ -321,7 +340,9 @@ export function buildOverviewRow(
     dev60: round2(status.dev60),
     dev200: round2(status.dev200),
     analogExcess: a.excess20,
-    analogSamples: a.sampleDays,
+    analogExcessCi: a.excessCi20,
+    analogDays: a.sampleDays,
+    analogEpisodes: a.episodes,
     to60: status.toThreshold60 === null ? null : round2(status.toThreshold60),
     to200: status.toThreshold200 === null ? null : round2(status.toThreshold200),
     waterTriggered: status.waterTriggered,

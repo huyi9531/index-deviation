@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { Sparkline } from '~/components/Sparkline'
 import { Card, ChartLink, Tag } from '~/components/ui'
-import { fmtDate, fmtExcess, fmtPct, fmtPoint } from '~/lib/format'
+import { fmtDate, fmtExcess, fmtPct, fmtPoint, excessToneOf, type ExcessTone } from '~/lib/format'
 import { MARKET_LABEL, currencySymbol } from '~/lib/indices/registry'
 import { getOverview } from '~/lib/indices/service'
 import { bindingLevel } from '~/lib/indices/stats'
@@ -177,12 +177,23 @@ function OverviewPage() {
 }
 
 /**
- * 超额的色阶：±3pp（噪声内，与水位标定规则一致）→ 灰；
- * 正超额 → 红（涨优势）、负超额 → 绿（跌优势），A 股红涨绿跌惯例。
+ * 语义色档 → 文本色类。**判定不在本地** —— 在 `lib/format.ts` 的 `excessToneOf()`，
+ * 详情页水位卡调的是同一个函数。这里只管把档位翻译成 class。
+ * A 股惯例：正超额 → 红（涨优势）、负超额 → 绿（跌优势）、与常态无异 → 灰。
  */
-function excessTone(v: number | null): string {
-  if (v === null || !Number.isFinite(v) || Math.abs(v) < 3) return 'text-faint'
-  return v > 0 ? 'text-up' : 'text-down'
+const EXCESS_CLASS: Record<ExcessTone, string> = {
+  up: 'text-up',
+  down: 'text-down',
+  neutral: 'text-faint',
+}
+
+/** 哨兵用的机器可读属性：让 .smoke/check.mjs 能断言「颜色 == 规则」而不必解析样式 */
+function excessAttrs(v: number | null, ci: [number, number] | null) {
+  return {
+    'data-excess': v === null ? 'none' : String(v),
+    'data-excess-ci': ci ? `${ci[0]} ${ci[1]}` : 'none',
+    'data-excess-tone': excessToneOf(v, ci),
+  }
 }
 
 /** Hero 区域的一个大数字 */
@@ -276,7 +287,10 @@ function Row({ row }: { row: OverviewRow }) {
           <Sparkline values={row.spark} color={spark.line} fill={spark.fill} height={32} />
         </Link>
       </td>
-      <td className={`num py-[15px] pr-4 font-medium ${excessTone(row.analogExcess)}`}>
+      <td
+        className={`num py-[15px] pr-4 font-medium ${EXCESS_CLASS[excessToneOf(row.analogExcess, row.analogExcessCi)]}`}
+        {...excessAttrs(row.analogExcess, row.analogExcessCi)}
+      >
         {fmtExcess(row.analogExcess)}
       </td>
       <td className="py-[15px] pr-6 whitespace-nowrap">
@@ -374,7 +388,8 @@ function MobileRow({ row }: { row: OverviewRow }) {
           </div>
           <div className="shrink-0 text-right">
             <p
-              className={`num text-[17px] font-semibold leading-none ${excessTone(row.analogExcess)}`}
+              className={`num text-[17px] font-semibold leading-none ${EXCESS_CLASS[excessToneOf(row.analogExcess, row.analogExcessCi)]}`}
+              {...excessAttrs(row.analogExcess, row.analogExcessCi)}
             >
               {fmtExcess(row.analogExcess)}
             </p>
